@@ -12,6 +12,7 @@ pyinstaller \
   --icon "icons/kokorotts.icns" \
   --add-data "app.py:." \
   --add-data "icons/kokorotts.png:icons" \
+  --add-data "icons/kokorotts-menubar.png:icons" \
   --collect-data safehttpx \
   --collect-data groovy \
   --collect-all kokoro_onnx \

@@ -35,8 +35,8 @@ def start_webui() -> None:
 
 class KokoroMenuBar(rumps.App):
     def __init__(self):
-        icon_file = resource_path("icons/kokorotts.png")
-        super().__init__("KokoroTTS", icon=icon_file, quit_button=None)
+        icon_file = resource_path("icons/kokorotts-menubar.png")
+        super().__init__("KokoroTTS", icon=icon_file, template=True, quit_button=None)
         self.menu = ["Åpne KokoroTTS", "Avslutt KokoroTTS"]
 
     @rumps.clicked("Åpne KokoroTTS")
