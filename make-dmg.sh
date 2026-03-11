@@ -9,9 +9,15 @@ STAGE_DIR="dist/dmg-stage"
 TMP_DMG="dist/KokoroTTS-tmp.dmg"
 MOUNT_DIR="/Volumes/${VOL_NAME}"
 BG_SRC="assets/dmg-background.png"
+TARGET_VERSION="$(tr -d '\n' < VERSION)"
+CURRENT_VERSION=""
 
-if [[ ! -d "$APP_PATH" ]]; then
-  echo "App mangler. Bygger først..."
+if [[ -f "$APP_PATH/Contents/Info.plist" ]]; then
+  CURRENT_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)
+fi
+
+if [[ ! -d "$APP_PATH" || "$CURRENT_VERSION" != "$TARGET_VERSION" ]]; then
+  echo "Bygger app først (target: ${TARGET_VERSION}, current: ${CURRENT_VERSION:-none})..."
   ./build-mac-app.sh
 fi
 
