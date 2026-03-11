@@ -225,4 +225,8 @@ def build_ui() -> gr.Blocks:
 
 if __name__ == "__main__":
     ui = build_ui()
-    ui.launch(server_name="0.0.0.0", server_port=7861)
+    ui.launch(
+        server_name="0.0.0.0",
+        server_port=7861,
+        allowed_paths=[str(TMP_DIR), str(OUT_DIR)],
+    )
