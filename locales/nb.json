@@ -48,5 +48,7 @@
   "error_lang_unsupported": "Språkkoden '{lang}' støttes ikke av motoren. Prøv f.eks. 'nb' for norsk.",
   "synth_done": "Klar: {voice} | språk={lang} | stil={style} | hastighet={speed} | gain={gain} dB | format={format}",
   "voice_settings": "Stemmeinnstillinger",
-  "show_all_voices": "Vis alle stemmer uavhengig av valgt språk"
+  "show_all_voices": "Vis alle stemmer uavhengig av valgt språk",
+  "history": "Genererte filer",
+  "play": "Spill av"
 }

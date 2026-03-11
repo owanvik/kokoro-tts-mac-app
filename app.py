@@ -379,10 +379,16 @@ def synthesize(text: str, voice: str, speed: float, lang: str, style: str, gain_
     sf.write(out_path, audio, sample_rate)
 
     new_history = list(history or []) + [str(out_path)]
+    # Labels for dropdown: just the filename
+    history_choices = [(Path(p).name, p) for p in new_history]
 
-    return str(out_path), new_history, new_history, tr(
-        "synth_done", voice=voice, lang=lang, style=style,
-        speed=f"{styled_speed:.2f}", gain=f"{gain_db:+.1f}", format=ext.upper(),
+    return (
+        str(out_path),
+        new_history,
+        gr.update(choices=history_choices, value=str(out_path)),
+        str(out_path),
+        tr("synth_done", voice=voice, lang=lang, style=style,
+           speed=f"{styled_speed:.2f}", gain=f"{gain_db:+.1f}", format=ext.upper()),
     )
 
 
@@ -487,8 +493,14 @@ def build_ui() -> gr.Blocks:
                 audio = gr.Audio(type="filepath", label=t("preview"))
                 file_history = gr.State(value=[])
                 with gr.Row():
-                    download = gr.File(label=t("download"), file_count="multiple")
-                    info = gr.Textbox(label=t("info"), interactive=False)
+                    history_dropdown = gr.Dropdown(
+                        choices=[], value=None,
+                        label=t("history"), scale=4, interactive=True,
+                    )
+                    play_btn = gr.Button("▶ " + t("play"), scale=1)
+                    download_btn = gr.Button("⬇ " + t("download"), scale=1)
+                download_file = gr.File(label=t("download"), visible=False)
+                info = gr.Textbox(label=t("info"), interactive=False)
 
             with gr.Tab(t("tab_settings")):
                 with gr.Group():
@@ -533,14 +545,22 @@ def build_ui() -> gr.Blocks:
         lang.change(fn=_update_voices, inputs=[lang, show_all_voices], outputs=[voice])
         show_all_voices.change(fn=_update_voices, inputs=[lang, show_all_voices], outputs=[voice])
 
-        def _play_selected(history, evt: gr.SelectData):
-            idx = evt.index
-            if history and 0 <= idx < len(history):
-                return history[idx]
-            return None
+        def _play_selected(path):
+            return path if path else None
 
-        btn.click(fn=synthesize, inputs=[text, voice, speed, lang, style, gain_db, output_format, file_history], outputs=[audio, file_history, download, info])
-        download.select(fn=_play_selected, inputs=[file_history], outputs=[audio])
+        def _download_selected(path):
+            if path and Path(path).exists():
+                return gr.update(value=path, visible=True)
+            return gr.update(visible=False)
+
+        btn.click(
+            fn=synthesize,
+            inputs=[text, voice, speed, lang, style, gain_db, output_format, file_history],
+            outputs=[audio, file_history, history_dropdown, download_file, info],
+        )
+        play_btn.click(fn=_play_selected, inputs=[history_dropdown], outputs=[audio])
+        history_dropdown.change(fn=_play_selected, inputs=[history_dropdown], outputs=[audio])
+        download_btn.click(fn=_download_selected, inputs=[history_dropdown], outputs=[download_file])
         check_update_btn.click(fn=check_updates_message, outputs=[update_status])
         auto_update_btn.click(fn=auto_update, outputs=[update_status])
         save_language_btn.click(fn=save_ui_language, inputs=[ui_language], outputs=[lang_info])
