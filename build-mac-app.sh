@@ -5,12 +5,15 @@ cd "$(dirname "$0")"
 source .venv/bin/activate
 python -m pip install -q pyinstaller
 
+VERSION=$(cat VERSION | tr -d '\n')
+
 pyinstaller \
   --noconfirm \
   --windowed \
   --name "KokoroTTS" \
   --icon "icons/kokorotts.icns" \
   --add-data "app.py:." \
+  --add-data "VERSION:." \
   --add-data "icons/kokorotts.png:icons" \
   --add-data "icons/kokorotts-menubar.png:icons" \
   --collect-data safehttpx \
@@ -25,4 +28,10 @@ pyinstaller \
   --collect-all rumps \
   launcher.py
 
-echo "Built app: $(pwd)/dist/KokoroTTS.app"
+PLIST="$(pwd)/dist/KokoroTTS.app/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VERSION}" "$PLIST" || \
+  /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string ${VERSION}" "$PLIST"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${VERSION}" "$PLIST" || \
+  /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string ${VERSION}" "$PLIST"
+
+echo "Built app: $(pwd)/dist/KokoroTTS.app (version ${VERSION})"
