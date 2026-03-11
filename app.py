@@ -492,13 +492,12 @@ def build_ui() -> gr.Blocks:
 
                 audio = gr.Audio(type="filepath", label=t("preview"))
                 file_history = gr.State(value=[])
+                history_radio = gr.Radio(
+                    choices=[], value=None,
+                    label=t("history"), interactive=True,
+                )
                 with gr.Row():
-                    history_dropdown = gr.Dropdown(
-                        choices=[], value=None,
-                        label=t("history"), scale=4, interactive=True,
-                    )
-                    play_btn = gr.Button("▶ " + t("play"), scale=1)
-                    download_btn = gr.Button("⬇ " + t("download"), scale=1)
+                    download_btn = gr.Button("⬇ " + t("download"))
                 download_file = gr.File(label=t("download"), visible=False)
                 info = gr.Textbox(label=t("info"), interactive=False)
 
@@ -556,11 +555,10 @@ def build_ui() -> gr.Blocks:
         btn.click(
             fn=synthesize,
             inputs=[text, voice, speed, lang, style, gain_db, output_format, file_history],
-            outputs=[audio, file_history, history_dropdown, download_file, info],
+            outputs=[audio, file_history, history_radio, download_file, info],
         )
-        play_btn.click(fn=_play_selected, inputs=[history_dropdown], outputs=[audio])
-        history_dropdown.change(fn=_play_selected, inputs=[history_dropdown], outputs=[audio])
-        download_btn.click(fn=_download_selected, inputs=[history_dropdown], outputs=[download_file])
+        history_radio.change(fn=_play_selected, inputs=[history_radio], outputs=[audio])
+        download_btn.click(fn=_download_selected, inputs=[history_radio], outputs=[download_file])
         check_update_btn.click(fn=check_updates_message, outputs=[update_status])
         auto_update_btn.click(fn=auto_update, outputs=[update_status])
         save_language_btn.click(fn=save_ui_language, inputs=[ui_language], outputs=[lang_info])
