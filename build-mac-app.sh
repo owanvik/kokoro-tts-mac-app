@@ -9,6 +9,7 @@ pyinstaller \
   --noconfirm \
   --windowed \
   --name "KokoroTTS" \
+  --icon "icons/kokorotts.icns" \
   --add-data "app.py:." \
   --collect-data safehttpx \
   --collect-data groovy \
