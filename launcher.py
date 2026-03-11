@@ -4,15 +4,22 @@
 from __future__ import annotations
 
 import os
+import sys
 import threading
 import time
 import webbrowser
+from pathlib import Path
 
 import rumps
 
 from app import build_ui
 
 URL = "http://127.0.0.1:7861"
+
+
+def resource_path(relative: str) -> str:
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    return str(base / relative)
 
 
 def start_webui() -> None:
@@ -28,7 +35,8 @@ def start_webui() -> None:
 
 class KokoroMenuBar(rumps.App):
     def __init__(self):
-        super().__init__("KokoroTTS", quit_button=None)
+        icon_file = resource_path("icons/kokorotts.png")
+        super().__init__("KokoroTTS", icon=icon_file, quit_button=None)
         self.menu = ["Åpne KokoroTTS", "Avslutt KokoroTTS"]
 
     @rumps.clicked("Åpne KokoroTTS")
