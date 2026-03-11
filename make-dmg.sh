@@ -15,6 +15,7 @@ if [[ ! -d "$APP_PATH" ]]; then
   ./build-mac-app.sh
 fi
 
+rm -f "$DMG_PATH"
 rm -rf "$STAGE_DIR"
 mkdir -p "$STAGE_DIR/.background"
 cp -R "$APP_PATH" "$STAGE_DIR/"
