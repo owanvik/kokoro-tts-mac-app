@@ -1,0 +1,6 @@
+kokoro-onnx>=0.4.7
+gradio>=6.9.0
+soundfile>=0.13.0
+numpy>=2.0.0
+rumps>=0.4.0
+pyinstaller>=6.0

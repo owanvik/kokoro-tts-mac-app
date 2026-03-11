@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 source .venv/bin/activate
-python -m pip install -q pyinstaller
+python -m pip install -q -r requirements.txt
 
 VERSION=$(cat VERSION | tr -d '\n')
 
