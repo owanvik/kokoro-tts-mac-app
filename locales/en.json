@@ -50,5 +50,9 @@
   "voice_settings": "Voice settings",
   "show_all_voices": "Show all voices regardless of selected language",
   "history": "Generated files",
-  "play": "Play"
+  "play": "Play",
+  "model_settings": "Model",
+  "model_version": "Model version",
+  "model_switched": "Switched to model {version}. Voices updated.",
+  "model_switch_error": "Could not switch model: {error}"
 }

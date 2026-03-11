@@ -28,11 +28,36 @@ MODELS_DIR = APP_DIR / "models"
 OUT_DIR = APP_DIR / "exports"
 TMP_DIR = APP_DIR / "tmp"
 
-MODEL_PATH = MODELS_DIR / "kokoro-v1.0.onnx"
-VOICES_PATH = MODELS_DIR / "voices-v1.0.bin"
+# ── Model registry ──────────────────────────────────────────────────
+# Each version maps to mirror URL (our repo) + fallback (upstream).
+# Files stored per-version: models/v1.0/kokoro-v1.0.onnx, etc.
+MODEL_REGISTRY: dict[str, dict] = {
+    "v1.0": {
+        "model": "kokoro-v1.0.onnx",
+        "voices": "voices-v1.0.bin",
+        "urls": [
+            ("https://github.com/owanvik/kokoro-tts-mac-app/releases/download/models-v1.0/kokoro-v1.0.onnx",
+             "https://github.com/owanvik/kokoro-tts-mac-app/releases/download/models-v1.0/voices-v1.0.bin"),
+            ("https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx",
+             "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin"),
+        ],
+    },
+}
+DEFAULT_MODEL_VERSION = "v1.0"
 
-MODEL_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx"
-VOICES_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin"
+def _model_dir(version: str) -> Path:
+    d = MODELS_DIR / version
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+def _model_paths(version: str) -> tuple[Path, Path]:
+    info = MODEL_REGISTRY[version]
+    d = _model_dir(version)
+    return d / info["model"], d / info["voices"]
+
+def get_model_version() -> str:
+    v = load_settings().get("model_version", DEFAULT_MODEL_VERSION)
+    return v if v in MODEL_REGISTRY else DEFAULT_MODEL_VERSION
 
 APP_VERSION = f"v{(BASE_DIR / 'VERSION').read_text(encoding='utf-8').strip()}"
 GITHUB_REPO = "owanvik/kokoro-tts-mac-app"
@@ -44,6 +69,14 @@ LOCALES_DIR = BASE_DIR / "locales"
 
 for d in [MODELS_DIR, OUT_DIR, TMP_DIR]:
     d.mkdir(parents=True, exist_ok=True)
+
+# Migrate old flat model files into versioned subfolder
+_old_model = MODELS_DIR / "kokoro-v1.0.onnx"
+_old_voices = MODELS_DIR / "voices-v1.0.bin"
+if _old_model.exists() and not (_model_dir("v1.0") / "kokoro-v1.0.onnx").exists():
+    _old_model.rename(_model_dir("v1.0") / "kokoro-v1.0.onnx")
+if _old_voices.exists() and not (_model_dir("v1.0") / "voices-v1.0.bin").exists():
+    _old_voices.rename(_model_dir("v1.0") / "voices-v1.0.bin")
 
 engine: Kokoro | None = None
 voices: list[str] = []
@@ -267,13 +300,35 @@ def _download(url: str, dest: Path) -> None:
     urllib.request.urlretrieve(url, dest)
 
 
-def ensure_engine() -> tuple[Kokoro, list[str]]:
-    global engine, voices
-    if engine is None:
-        _download(MODEL_URL, MODEL_PATH)
-        _download(VOICES_URL, VOICES_PATH)
-        engine = Kokoro(model_path=str(MODEL_PATH), voices_path=str(VOICES_PATH))
+def _download_model(version: str) -> tuple[Path, Path]:
+    """Download model files, trying mirror first then fallback."""
+    info = MODEL_REGISTRY[version]
+    model_path, voices_path = _model_paths(version)
+    for model_url, voices_url in info["urls"]:
+        try:
+            _download(model_url, model_path)
+            _download(voices_url, voices_path)
+            return model_path, voices_path
+        except Exception:
+            # Remove partial downloads before trying next mirror
+            for p in (model_path, voices_path):
+                if p.exists() and p.stat().st_size == 0:
+                    p.unlink()
+            continue
+    raise RuntimeError(f"Could not download model {version} from any mirror")
+
+
+_current_model_version: str | None = None
+
+
+def ensure_engine(version: str | None = None) -> tuple[Kokoro, list[str]]:
+    global engine, voices, _current_model_version
+    version = version or get_model_version()
+    if engine is None or _current_model_version != version:
+        model_path, voices_path = _download_model(version)
+        engine = Kokoro(model_path=str(model_path), voices_path=str(voices_path))
         voices = engine.get_voices()
+        _current_model_version = version
     return engine, voices
 
 
@@ -521,6 +576,17 @@ def build_ui() -> gr.Blocks:
                     )
 
                 with gr.Group():
+                    gr.Markdown(f"#### {t('model_settings')}")
+                    current_model = get_model_version()
+                    model_choices = [(f"Kokoro {k}", k) for k in MODEL_REGISTRY]
+                    model_selector = gr.Dropdown(
+                        choices=model_choices,
+                        value=current_model,
+                        label=t("model_version"),
+                    )
+                    model_info = gr.Textbox(label=t("info"), interactive=False)
+
+                with gr.Group():
                     gr.Markdown(f"#### {t('app_status')}")
                     update_status = gr.Textbox(
                         label=t("app_status"),
@@ -536,9 +602,10 @@ def build_ui() -> gr.Blocks:
             settings = load_settings()
             settings["show_all_voices"] = all_voices_on
             save_settings(settings)
-            filtered_v = voices_for_lang(selected_lang, v, all_voices_on)
+            _, current_voices = ensure_engine()
+            filtered_v = voices_for_lang(selected_lang, current_voices, all_voices_on)
             current = voice.value
-            new_val = current if current in filtered_v else (filtered_v[0] if filtered_v else v[0])
+            new_val = current if current in filtered_v else (filtered_v[0] if filtered_v else current_voices[0])
             return gr.update(choices=filtered_v, value=new_val)
 
         lang.change(fn=_update_voices, inputs=[lang, show_all_voices], outputs=[voice])
@@ -559,6 +626,27 @@ def build_ui() -> gr.Blocks:
         )
         history_radio.change(fn=_play_selected, inputs=[history_radio], outputs=[audio])
         download_btn.click(fn=_download_selected, inputs=[history_radio], outputs=[download_file])
+        def _switch_model(version, selected_lang, all_voices_on):
+            settings = load_settings()
+            settings["model_version"] = version
+            save_settings(settings)
+            try:
+                _, new_voices = ensure_engine(version)
+            except Exception as e:
+                return gr.update(), gr.update(), tr("model_switch_error", error=str(e))
+            filtered_v = voices_for_lang(selected_lang, new_voices, all_voices_on)
+            default_v = filtered_v[0] if filtered_v else new_voices[0]
+            return (
+                gr.update(choices=filtered_v, value=default_v),
+                gr.update(choices=new_voices, value=default_v),
+                tr("model_switched", version=version),
+            )
+
+        model_selector.change(
+            fn=_switch_model,
+            inputs=[model_selector, lang, show_all_voices],
+            outputs=[voice, voice, model_info],
+        )
         check_update_btn.click(fn=check_updates_message, outputs=[update_status])
         auto_update_btn.click(fn=auto_update, outputs=[update_status])
         save_language_btn.click(fn=save_ui_language, inputs=[ui_language], outputs=[lang_info])
