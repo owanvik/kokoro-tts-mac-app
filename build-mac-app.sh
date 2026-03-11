@@ -20,6 +20,7 @@ pyinstaller \
   --collect-all language_tags \
   --collect-all espeakng_loader \
   --collect-all gradio \
+  --collect-all rumps \
   launcher.py
 
 echo "Built app: $(pwd)/dist/KokoroTTS.app"
