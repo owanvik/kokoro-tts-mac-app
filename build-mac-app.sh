@@ -14,6 +14,7 @@ pyinstaller \
   --icon "icons/kokorotts.icns" \
   --add-data "app.py:." \
   --add-data "VERSION:." \
+  --add-data "kokorotts.png:." \
   --add-data "icons/kokorotts.png:icons" \
   --add-data "icons/kokorotts-menubar.png:icons" \
   --add-data "locales:locales" \

@@ -374,18 +374,28 @@ def build_ui() -> gr.Blocks:
     default_voice = "af_heart" if "af_heart" in v else v[0]
     favorites = load_favorites()
 
-    theme = gr.themes.Soft(
-        primary_hue=gr.themes.colors.purple,
+    theme = gr.themes.Default(
+        primary_hue=gr.themes.colors.blue,
         secondary_hue=gr.themes.colors.pink,
+        neutral_hue=gr.themes.colors.slate,
+        font=[gr.themes.GoogleFont("Inter"), "system-ui", "sans-serif"],
+        font_mono=[gr.themes.GoogleFont("JetBrains Mono"), "monospace"],
     )
+    logo_path = str(BASE_DIR / "kokorotts.png")
     css = """
     .main-btn { min-height: 46px !important; font-size: 1.1em !important; }
-    .app-title { text-align: center; margin-bottom: 0 !important; }
+    .logo-row { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 4px; }
+    .logo-row img { max-height: 64px; border-radius: 12px; }
     .app-version { text-align: center; color: #888; font-size: 0.85em; margin-top: -8px !important; }
     """
 
     with gr.Blocks(title="Kokoro TTS", theme=theme, css=css) as demo:
-        gr.Markdown(f"# 🎵 {t('title')}", elem_classes=["app-title"])
+        gr.HTML(f"""
+            <div class="logo-row">
+                <img src="/file={logo_path}" alt="KokoroTTS">
+                <h1 style="margin:0;">{t('title')}</h1>
+            </div>
+        """)
         gr.Markdown(f"{APP_VERSION}", elem_classes=["app-version"])
 
         with gr.Tabs():
@@ -484,5 +494,5 @@ if __name__ == "__main__":
     ui.launch(
         server_name="0.0.0.0",
         server_port=7861,
-        allowed_paths=[str(TMP_DIR), str(OUT_DIR)],
+        allowed_paths=[str(TMP_DIR), str(OUT_DIR), str(BASE_DIR)],
     )
