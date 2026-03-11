@@ -438,7 +438,7 @@ def synthesize(text: str, voice: str, speed: float, lang: str, style: str, gain_
 
     # Label for history list: truncated text + time
     label = f"{snippet[:30]}{'…' if len(text.strip()) > 30 else ''} ({timestamp[:2]}:{timestamp[2:4]})"
-    new_history = list(history or []) + [(label, str(out_path))]
+    new_history = [(label, str(out_path))] + list(history or [])
     history_choices = [(lbl, path) for lbl, path in new_history]
 
     return (
