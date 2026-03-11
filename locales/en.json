@@ -46,5 +46,7 @@
   "fav_added": "Added favorite: {voice}",
   "error_empty_text": "Please enter text first.",
   "error_lang_unsupported": "Language code '{lang}' is not supported. Try e.g. 'en-us' or 'nb'.",
-  "synth_done": "Done: {voice} | lang={lang} | style={style} | speed={speed} | gain={gain} dB | format={format}"
+  "synth_done": "Done: {voice} | lang={lang} | style={style} | speed={speed} | gain={gain} dB | format={format}",
+  "voice_settings": "Voice settings",
+  "show_all_voices": "Show all voices regardless of selected language"
 }

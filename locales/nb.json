@@ -46,5 +46,7 @@
   "fav_added": "La til favoritt: {voice}",
   "error_empty_text": "Skriv inn tekst først.",
   "error_lang_unsupported": "Språkkoden '{lang}' støttes ikke av motoren. Prøv f.eks. 'nb' for norsk.",
-  "synth_done": "Klar: {voice} | språk={lang} | stil={style} | hastighet={speed} | gain={gain} dB | format={format}"
+  "synth_done": "Klar: {voice} | språk={lang} | stil={style} | hastighet={speed} | gain={gain} dB | format={format}",
+  "voice_settings": "Stemmeinnstillinger",
+  "show_all_voices": "Vis alle stemmer uavhengig av valgt språk"
 }

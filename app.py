@@ -48,6 +48,26 @@ for d in [MODELS_DIR, OUT_DIR, TMP_DIR]:
 engine: Kokoro | None = None
 voices: list[str] = []
 
+# Map voice prefix to training language
+VOICE_LANG_MAP = {
+    "af": "en-us", "am": "en-us",
+    "bf": "en-gb", "bm": "en-gb",
+    "ef": "es",    "em": "es",
+    "ff": "fr-fr",
+    "hf": "hi",    "hm": "hi",
+    "if": "it",    "im": "it",
+    "jf": "ja",    "jm": "ja",
+    "pf": "pt-br", "pm": "pt-br",
+    "zf": "cmn",   "zm": "cmn",
+}
+
+
+def voices_for_lang(lang: str, all_voices: list[str], show_all: bool = False) -> list[str]:
+    if show_all:
+        return all_voices
+    matching = [v for v in all_voices if VOICE_LANG_MAP.get(v.split("_")[0]) == lang]
+    return matching if matching else all_voices
+
 
 def load_settings() -> dict:
     try:
@@ -368,7 +388,10 @@ def build_ui() -> gr.Blocks:
     L = get_ui_language()
     t = lambda key, **kw: tr(key, L, **kw)
     _, v = ensure_engine()
-    default_voice = "af_heart" if "af_heart" in v else v[0]
+    show_all = load_settings().get("show_all_voices", False)
+    default_lang = "en-us"
+    filtered = voices_for_lang(default_lang, v, show_all)
+    default_voice = "af_heart" if "af_heart" in filtered else filtered[0]
     favorites = load_favorites()
 
     logo_file = BASE_DIR / "kokorotts.png"
@@ -406,7 +429,7 @@ def build_ui() -> gr.Blocks:
                 with gr.Group():
                     gr.Markdown(f"#### {t('voice_group')}")
                     with gr.Row():
-                        voice = gr.Dropdown(choices=v, value=default_voice, label=t("voice"), scale=3)
+                        voice = gr.Dropdown(choices=filtered, value=default_voice, label=t("voice"), scale=3)
                         favorite_voice = gr.Dropdown(
                             choices=favorites,
                             value=(favorites[0] if favorites else None),
@@ -477,6 +500,13 @@ def build_ui() -> gr.Blocks:
                     lang_info = gr.Textbox(label=t("info"), interactive=False)
 
                 with gr.Group():
+                    gr.Markdown(f"#### {t('voice_settings')}")
+                    show_all_voices = gr.Checkbox(
+                        value=show_all,
+                        label=t("show_all_voices"),
+                    )
+
+                with gr.Group():
                     gr.Markdown(f"#### {t('app_status')}")
                     update_status = gr.Textbox(
                         label=t("app_status"),
@@ -488,6 +518,18 @@ def build_ui() -> gr.Blocks:
                         auto_update_btn = gr.Button(t("update_now"))
 
         # Events
+        def _update_voices(selected_lang, all_voices_on):
+            settings = load_settings()
+            settings["show_all_voices"] = all_voices_on
+            save_settings(settings)
+            filtered_v = voices_for_lang(selected_lang, v, all_voices_on)
+            current = voice.value
+            new_val = current if current in filtered_v else (filtered_v[0] if filtered_v else v[0])
+            return gr.update(choices=filtered_v, value=new_val)
+
+        lang.change(fn=_update_voices, inputs=[lang, show_all_voices], outputs=[voice])
+        show_all_voices.change(fn=_update_voices, inputs=[lang, show_all_voices], outputs=[voice])
+
         btn.click(fn=synthesize, inputs=[text, voice, speed, lang, style, gain_db, output_format], outputs=[audio, download, info])
         check_update_btn.click(fn=check_updates_message, outputs=[update_status])
         auto_update_btn.click(fn=auto_update, outputs=[update_status])
