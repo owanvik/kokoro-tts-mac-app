@@ -351,7 +351,7 @@ def apply_preset(preset: str):
     return style, speed, gain
 
 
-def synthesize(text: str, voice: str, speed: float, lang: str, style: str, gain_db: float, output_format: str):
+def synthesize(text: str, voice: str, speed: float, lang: str, style: str, gain_db: float, output_format: str, history: list):
     if not text or not text.strip():
         raise gr.Error(tr("error_empty_text"))
 
@@ -378,7 +378,9 @@ def synthesize(text: str, voice: str, speed: float, lang: str, style: str, gain_
     out_path = OUT_DIR / filename
     sf.write(out_path, audio, sample_rate)
 
-    return str(out_path), str(out_path), tr(
+    new_history = list(history or []) + [str(out_path)]
+
+    return str(out_path), new_history, new_history, tr(
         "synth_done", voice=voice, lang=lang, style=style,
         speed=f"{styled_speed:.2f}", gain=f"{gain_db:+.1f}", format=ext.upper(),
     )
@@ -483,8 +485,9 @@ def build_ui() -> gr.Blocks:
                 btn = gr.Button(t("generate"), variant="primary", elem_classes=["main-btn"])
 
                 audio = gr.Audio(type="filepath", label=t("preview"))
+                file_history = gr.State(value=[])
                 with gr.Row():
-                    download = gr.File(label=t("download"))
+                    download = gr.File(label=t("download"), file_count="multiple")
                     info = gr.Textbox(label=t("info"), interactive=False)
 
             with gr.Tab(t("tab_settings")):
@@ -530,7 +533,7 @@ def build_ui() -> gr.Blocks:
         lang.change(fn=_update_voices, inputs=[lang, show_all_voices], outputs=[voice])
         show_all_voices.change(fn=_update_voices, inputs=[lang, show_all_voices], outputs=[voice])
 
-        btn.click(fn=synthesize, inputs=[text, voice, speed, lang, style, gain_db, output_format], outputs=[audio, download, info])
+        btn.click(fn=synthesize, inputs=[text, voice, speed, lang, style, gain_db, output_format, file_history], outputs=[audio, file_history, download, info])
         check_update_btn.click(fn=check_updates_message, outputs=[update_status])
         auto_update_btn.click(fn=auto_update, outputs=[update_status])
         save_language_btn.click(fn=save_ui_language, inputs=[ui_language], outputs=[lang_info])
