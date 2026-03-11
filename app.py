@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import re
 import sys
 import urllib.request
@@ -27,7 +28,7 @@ VOICES_PATH = MODELS_DIR / "voices-v1.0.bin"
 MODEL_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx"
 VOICES_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin"
 
-APP_VERSION = "v0.3.0"
+APP_VERSION = "v0.4.0"
 GITHUB_REPO = "owanvik/kokoro-tts-mac-app"
 LATEST_RELEASE_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 LATEST_RELEASE_URL = f"https://github.com/{GITHUB_REPO}/releases/latest"
@@ -44,26 +45,62 @@ def _parse_version(tag: str) -> tuple[int, ...]:
     return tuple(int(n) for n in nums[:3]) if nums else (0,)
 
 
-def get_latest_release() -> tuple[str, str]:
+def get_latest_release() -> tuple[str, str, str]:
     req = urllib.request.Request(
         LATEST_RELEASE_API,
         headers={"Accept": "application/vnd.github+json", "User-Agent": "KokoroTTS"},
     )
     with urllib.request.urlopen(req, timeout=6) as resp:
         data = json.loads(resp.read().decode("utf-8"))
-    return data.get("tag_name", ""), data.get("html_url", LATEST_RELEASE_URL)
+
+    dmg_url = ""
+    for asset in data.get("assets", []):
+        name = (asset.get("name") or "").lower()
+        if name.endswith(".dmg"):
+            dmg_url = asset.get("browser_download_url", "")
+            break
+
+    return data.get("tag_name", ""), data.get("html_url", LATEST_RELEASE_URL), dmg_url
 
 
 def check_updates_message() -> str:
     try:
-        latest_tag, latest_url = get_latest_release()
+        latest_tag, latest_url, _ = get_latest_release()
     except Exception:
         return f"Versjon: {APP_VERSION} | Oppdateringssjekk utilgjengelig nå."
 
     if _parse_version(latest_tag) > _parse_version(APP_VERSION):
-        return f"Oppdatering tilgjengelig: {latest_tag} (du har {APP_VERSION}). Last ned: {latest_url}"
+        return f"Oppdatering tilgjengelig: {latest_tag} (du har {APP_VERSION}). Klar for automatisk oppdatering."
 
     return f"Du har nyeste versjon ({APP_VERSION})."
+
+
+def auto_update() -> str:
+    try:
+        latest_tag, latest_url, dmg_url = get_latest_release()
+    except Exception as e:
+        return f"Kunne ikke sjekke oppdatering nå: {e}"
+
+    if _parse_version(latest_tag) <= _parse_version(APP_VERSION):
+        return f"Du har allerede nyeste versjon ({APP_VERSION})."
+
+    if not dmg_url:
+        return f"Fant ikke DMG i release {latest_tag}. Åpne manuelt: {latest_url}"
+
+    downloads = Path.home() / "Downloads"
+    downloads.mkdir(parents=True, exist_ok=True)
+    dmg_path = downloads / f"KokoroTTS-{latest_tag}-mac-arm64.dmg"
+
+    try:
+        urllib.request.urlretrieve(dmg_url, dmg_path)
+        subprocess.Popen(["open", str(dmg_path)])
+    except Exception as e:
+        return f"Nedlasting/åpning feilet: {e}"
+
+    return (
+        f"Ny versjon {latest_tag} lastet ned. Installasjonsvindu åpnes nå. "
+        "Dra appen til Applications for å fullføre oppdatering."
+    )
 
 
 def _download(url: str, dest: Path) -> None:
@@ -153,7 +190,9 @@ def build_ui() -> gr.Blocks:
     with gr.Blocks(title="Kokoro TTS") as demo:
         gr.Markdown("## Kokoro TTS WebUI")
         update_status = gr.Textbox(label="App-status", value=check_updates_message(), interactive=False)
-        check_update_btn = gr.Button("Sjekk oppdatering")
+        with gr.Row():
+            check_update_btn = gr.Button("Sjekk oppdatering")
+            auto_update_btn = gr.Button("Oppdater nå")
 
         text = gr.Textbox(lines=6, label="Tekst", placeholder="Skriv tekst her...")
         with gr.Row():
@@ -179,6 +218,7 @@ def build_ui() -> gr.Blocks:
 
         btn.click(fn=synthesize, inputs=[text, voice, speed, lang, style], outputs=[audio, download, info])
         check_update_btn.click(fn=check_updates_message, outputs=[update_status])
+        auto_update_btn.click(fn=auto_update, outputs=[update_status])
 
     return demo
 

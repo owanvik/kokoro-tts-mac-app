@@ -1,6 +1,10 @@
 # KokoroTTS for macOS
 
-Dette repoet er primært for **nedlasting av ferdig app**.
+KokoroTTS er en enkel lokal TTS-app for macOS med:
+- stemmevalg
+- språkvalg (inkl. norsk)
+- style-presets (f.eks. Direct, Angry, Calm)
+- forhåndslytt + nedlasting av lydfil
 
 ## Last ned
 
@@ -29,5 +33,8 @@ Første oppstart kan ta litt tid fordi modellfiler lastes ned automatisk.
 
 ## Oppdatering
 
-Appen sjekker ny versjon ved oppstart, og du kan også trykke **Sjekk oppdatering**.
-Ved ny versjon får du direkte lenke til GitHub Release med ny DMG.
+Appen sjekker ny versjon ved oppstart.
+Ved ny versjon kan brukeren trykke **Oppdater nå** i appen:
+- appen laster ned ny DMG automatisk
+- åpner installasjonsvinduet automatisk
+- bruker drar ny app til Applications
