@@ -333,13 +333,6 @@ def synthesize(text: str, voice: str, speed: float, lang: str, style: str, gain_
     if not text or not text.strip():
         raise gr.Error(tr("error_empty_text"))
 
-    # Normalize a few user-friendly aliases to eSpeak-supported language codes.
-    lang_alias = {
-        "no": "nb",
-        "zh": "cmn",
-    }
-    resolved_lang = lang_alias.get(lang, lang)
-
     styled_text, styled_speed = apply_style(text, style, speed)
 
     tts, _ = ensure_engine()
@@ -348,7 +341,7 @@ def synthesize(text: str, voice: str, speed: float, lang: str, style: str, gain_
             text=styled_text,
             voice=voice,
             speed=styled_speed,
-            lang=resolved_lang,
+            lang=lang,
         )
     except RuntimeError as e:
         raise gr.Error(tr("error_lang_unsupported", lang=lang)) from e
@@ -422,7 +415,20 @@ def build_ui() -> gr.Blocks:
                     gr.Markdown(f"#### {t('audio_settings')}")
                     with gr.Row():
                         lang = gr.Dropdown(
-                            choices=["en-us", "en-gb", "nb", "no", "sv", "da", "de", "fr-fr", "es", "it", "pt-br", "ja", "cmn", "zh"],
+                            choices=[
+                                ("English (US)", "en-us"),
+                                ("English (UK)", "en-gb"),
+                                ("Norsk", "nb"),
+                                ("Svenska", "sv"),
+                                ("Dansk", "da"),
+                                ("Deutsch", "de"),
+                                ("Fran\u00e7ais", "fr-fr"),
+                                ("Espa\u00f1ol", "es"),
+                                ("Italiano", "it"),
+                                ("Portugu\u00eas (BR)", "pt-br"),
+                                ("\u65e5\u672c\u8a9e", "ja"),
+                                ("\u4e2d\u6587", "cmn"),
+                            ],
                             value="en-us",
                             label=t("language_code"),
                         )
