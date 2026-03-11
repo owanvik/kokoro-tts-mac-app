@@ -34,4 +34,7 @@ PLIST="$(pwd)/dist/KokoroTTS.app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${VERSION}" "$PLIST" || \
   /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string ${VERSION}" "$PLIST"
 
+# Re-sign after plist edits to avoid macOS "app is damaged" warnings
+codesign --force --deep --sign - "$(pwd)/dist/KokoroTTS.app"
+
 echo "Built app: $(pwd)/dist/KokoroTTS.app (version ${VERSION})"
