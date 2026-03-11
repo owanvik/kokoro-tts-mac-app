@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import json
+import os
+import signal
 import subprocess
 import re
 import sys
+import tempfile
 import urllib.request
 from pathlib import Path
 
@@ -129,6 +132,18 @@ def check_updates_message() -> str:
     return tr("up_to_date", version=APP_VERSION)
 
 
+def _get_app_bundle_path() -> Path | None:
+    """Return the path to the running .app bundle, or None if not frozen."""
+    if not getattr(sys, "frozen", False):
+        return None
+    exe = Path(sys.executable).resolve()
+    # PyInstaller: .app/Contents/MacOS/<name>  →  walk up to .app
+    for parent in exe.parents:
+        if parent.suffix == ".app":
+            return parent
+    return None
+
+
 def auto_update() -> str:
     try:
         latest_tag, latest_url, dmg_url = get_latest_release()
@@ -141,17 +156,87 @@ def auto_update() -> str:
     if not dmg_url:
         return tr("dmg_not_found", tag=latest_tag, url=latest_url)
 
-    downloads = Path.home() / "Downloads"
-    downloads.mkdir(parents=True, exist_ok=True)
-    dmg_path = downloads / f"KokoroTTS-{latest_tag}-mac-arm64.dmg"
+    current_app = _get_app_bundle_path()
+    if current_app is None:
+        # Dev mode — fall back to opening the release page
+        import webbrowser
+        webbrowser.open(latest_url)
+        return tr("update_dev_mode", url=latest_url)
+
+    # --- Real in-place update ---
+    tmp_dir = tempfile.mkdtemp(prefix="kokoro-update-")
+    dmg_path = Path(tmp_dir) / "update.dmg"
+    mount_point = Path(tmp_dir) / "mount"
+    mount_point.mkdir()
 
     try:
         urllib.request.urlretrieve(dmg_url, dmg_path)
-        subprocess.Popen(["open", str(dmg_path)])
     except Exception as e:
         return tr("download_failed", error=str(e))
 
-    return tr("update_downloaded", tag=latest_tag)
+    try:
+        subprocess.run(
+            ["hdiutil", "attach", str(dmg_path), "-mountpoint", str(mount_point), "-nobrowse", "-quiet"],
+            check=True, capture_output=True,
+        )
+    except subprocess.CalledProcessError as e:
+        return tr("update_mount_failed", error=e.stderr.decode(errors="replace").strip())
+
+    # Find the .app inside the mounted DMG
+    new_app = None
+    for item in mount_point.iterdir():
+        if item.suffix == ".app" and item.is_dir():
+            new_app = item
+            break
+
+    if new_app is None:
+        subprocess.run(["hdiutil", "detach", str(mount_point), "-quiet"], capture_output=True)
+        return tr("update_no_app_in_dmg")
+
+    install_dest = current_app.parent  # e.g. /Applications
+    app_name = current_app.name        # e.g. KokoroTTS.app
+
+    # Write an updater script that runs after we quit
+    updater_script = Path(tmp_dir) / "updater.sh"
+    updater_script.write_text(f"""#!/bin/bash
+# Wait for the app to quit
+PID={os.getpid()}
+for i in {{1..30}}; do
+    kill -0 "$PID" 2>/dev/null || break
+    sleep 0.5
+done
+
+# Replace the old app
+rm -rf "{install_dest / app_name}"
+cp -pR "{new_app}" "{install_dest / app_name}"
+
+# Unmount and clean up
+hdiutil detach "{mount_point}" -quiet 2>/dev/null
+rm -rf "{tmp_dir}"
+
+# Relaunch
+open "{install_dest / app_name}"
+""", encoding="utf-8")
+    updater_script.chmod(0o755)
+
+    # Launch the updater in the background and quit
+    subprocess.Popen(
+        ["/bin/bash", str(updater_script)],
+        start_new_session=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    # Give Gradio a moment to send the response, then exit
+    def _delayed_exit():
+        import time
+        time.sleep(1.5)
+        os._exit(0)
+
+    import threading
+    threading.Thread(target=_delayed_exit, daemon=True).start()
+
+    return tr("update_restarting", tag=latest_tag)
 
 
 def _download(url: str, dest: Path) -> None:
