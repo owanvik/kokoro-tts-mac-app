@@ -541,7 +541,6 @@ def build_ui() -> gr.Blocks:
                             value="neutral",
                             label=t("preset"),
                         )
-                        apply_preset_btn = gr.Button(t("apply_preset"))
                     with gr.Row():
                         speed = gr.Slider(0.5, 2.0, value=1.0, step=0.05, label=t("base_speed"))
                         gain_db = gr.Slider(-12.0, 12.0, value=0.0, step=0.5, label=t("volume_db"))
@@ -563,13 +562,11 @@ def build_ui() -> gr.Blocks:
             with gr.Tab(t("tab_settings")):
                 with gr.Group():
                     gr.Markdown(f"#### {t('ui_language')}")
-                    with gr.Row():
-                        ui_language = gr.Dropdown(
-                            choices=[("Norsk", "nb"), ("English", "en")],
-                            value=L,
-                            label=t("ui_language"),
-                        )
-                        save_language_btn = gr.Button(t("save_language"))
+                    ui_language = gr.Dropdown(
+                        choices=[("Norsk", "nb"), ("English", "en")],
+                        value=L,
+                        label=t("ui_language"),
+                    )
                     lang_info = gr.Textbox(label=t("info"), interactive=False)
 
                 with gr.Group():
@@ -653,10 +650,10 @@ def build_ui() -> gr.Blocks:
         )
         check_update_btn.click(fn=check_updates_message, outputs=[update_status])
         auto_update_btn.click(fn=auto_update, outputs=[update_status])
-        save_language_btn.click(fn=save_ui_language, inputs=[ui_language], outputs=[lang_info])
+        ui_language.change(fn=save_ui_language, inputs=[ui_language], outputs=[lang_info])
         fav_btn.click(fn=toggle_favorite, inputs=[voice], outputs=[favorite_voice, info])
         favorite_voice.change(fn=lambda x: x, inputs=[favorite_voice], outputs=[voice])
-        apply_preset_btn.click(fn=apply_preset, inputs=[preset], outputs=[style, speed, gain_db])
+        preset.change(fn=apply_preset, inputs=[preset], outputs=[style, speed, gain_db])
 
     return demo
 
