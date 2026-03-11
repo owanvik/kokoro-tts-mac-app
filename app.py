@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import json
+import re
 import sys
 import urllib.request
 from pathlib import Path
@@ -25,11 +27,43 @@ VOICES_PATH = MODELS_DIR / "voices-v1.0.bin"
 MODEL_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx"
 VOICES_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin"
 
+APP_VERSION = "v0.3.0"
+GITHUB_REPO = "owanvik/kokoro-tts-mac-app"
+LATEST_RELEASE_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+LATEST_RELEASE_URL = f"https://github.com/{GITHUB_REPO}/releases/latest"
+
 for d in [MODELS_DIR, OUT_DIR, TMP_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
 engine: Kokoro | None = None
 voices: list[str] = []
+
+
+def _parse_version(tag: str) -> tuple[int, ...]:
+    nums = re.findall(r"\d+", tag or "")
+    return tuple(int(n) for n in nums[:3]) if nums else (0,)
+
+
+def get_latest_release() -> tuple[str, str]:
+    req = urllib.request.Request(
+        LATEST_RELEASE_API,
+        headers={"Accept": "application/vnd.github+json", "User-Agent": "KokoroTTS"},
+    )
+    with urllib.request.urlopen(req, timeout=6) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    return data.get("tag_name", ""), data.get("html_url", LATEST_RELEASE_URL)
+
+
+def check_updates_message() -> str:
+    try:
+        latest_tag, latest_url = get_latest_release()
+    except Exception:
+        return f"Versjon: {APP_VERSION} | Oppdateringssjekk utilgjengelig nå."
+
+    if _parse_version(latest_tag) > _parse_version(APP_VERSION):
+        return f"Oppdatering tilgjengelig: {latest_tag} (du har {APP_VERSION}). Last ned: {latest_url}"
+
+    return f"Du har nyeste versjon ({APP_VERSION})."
 
 
 def _download(url: str, dest: Path) -> None:
@@ -118,6 +152,9 @@ def build_ui() -> gr.Blocks:
 
     with gr.Blocks(title="Kokoro TTS") as demo:
         gr.Markdown("## Kokoro TTS WebUI")
+        update_status = gr.Textbox(label="App-status", value=check_updates_message(), interactive=False)
+        check_update_btn = gr.Button("Sjekk oppdatering")
+
         text = gr.Textbox(lines=6, label="Tekst", placeholder="Skriv tekst her...")
         with gr.Row():
             voice = gr.Dropdown(choices=v, value=default_voice, label="Stemme")
@@ -141,6 +178,7 @@ def build_ui() -> gr.Blocks:
         info = gr.Textbox(label="Info")
 
         btn.click(fn=synthesize, inputs=[text, voice, speed, lang, style], outputs=[audio, download, info])
+        check_update_btn.click(fn=check_updates_message, outputs=[update_status])
 
     return demo
 

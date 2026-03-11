@@ -26,3 +26,8 @@ Appen åpner nettsiden automatisk. Hvis ikke:
 - http://127.0.0.1:7861
 
 Første oppstart kan ta litt tid fordi modellfiler lastes ned automatisk.
+
+## Oppdatering
+
+Appen sjekker ny versjon ved oppstart, og du kan også trykke **Sjekk oppdatering**.
+Ved ny versjon får du direkte lenke til GitHub Release med ny DMG.
