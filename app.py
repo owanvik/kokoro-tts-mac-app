@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import base64
 import json
 import os
 import signal
@@ -9,6 +10,7 @@ import re
 import sys
 import tempfile
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 
 import gradio as gr
@@ -349,9 +351,11 @@ def synthesize(text: str, voice: str, speed: float, lang: str, style: str, gain_
     # Volume gain
     audio = np.clip(audio * _db_to_gain(float(gain_db)), -1.0, 1.0)
 
-    stem = voice.replace("/", "_")
+    stem = re.sub(r'[^\w-]', '_', voice)
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     ext = "mp3" if output_format.lower() == "mp3" else "wav"
-    out_path = TMP_DIR / f"kokoro-{stem}.{ext}"
+    filename = f"KokoroTTS_{stem}_{lang}_{style}_{timestamp}.{ext}"
+    out_path = OUT_DIR / filename
     sf.write(out_path, audio, sample_rate)
 
     return str(out_path), str(out_path), tr(
@@ -367,29 +371,29 @@ def build_ui() -> gr.Blocks:
     default_voice = "af_heart" if "af_heart" in v else v[0]
     favorites = load_favorites()
 
-    theme = gr.themes.Default(
-        primary_hue=gr.themes.colors.blue,
-        secondary_hue=gr.themes.colors.pink,
-        neutral_hue=gr.themes.colors.slate,
-        font=[gr.themes.GoogleFont("Inter"), "system-ui", "sans-serif"],
-        font_mono=[gr.themes.GoogleFont("JetBrains Mono"), "monospace"],
-    )
-    logo_path = str(BASE_DIR / "kokorotts.png")
+    logo_file = BASE_DIR / "kokorotts.png"
+    logo_b64 = ""
+    try:
+        logo_b64 = base64.b64encode(logo_file.read_bytes()).decode()
+    except Exception:
+        pass
     css = """
     .main-btn { min-height: 46px !important; font-size: 1.1em !important; }
-    .logo-row { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 4px; }
-    .logo-row img { max-height: 64px; border-radius: 12px; }
-    .app-version { text-align: center; color: #888; font-size: 0.85em; margin-top: -8px !important; }
+    .header-wrap { text-align: center; padding: 12px 0 4px; }
+    .header-wrap img { height: 72px; border-radius: 14px; vertical-align: middle; margin-right: 10px; }
+    .header-wrap .ver { color: #888; font-size: 0.85em; margin-top: 2px; }
     """
 
-    with gr.Blocks(title="Kokoro TTS", theme=theme, css=css) as demo:
+    logo_html = f'<img src="data:image/png;base64,{logo_b64}" alt="">' if logo_b64 else ""
+
+    with gr.Blocks(title="Kokoro TTS", css=css) as demo:
         gr.HTML(f"""
-            <div class="logo-row">
-                <img src="/file={logo_path}" alt="KokoroTTS">
-                <h1 style="margin:0;">{t('title')}</h1>
+            <div class="header-wrap">
+                {logo_html}
+                <span style="font-size:1.8em; font-weight:700; vertical-align:middle;">{t('title')}</span>
+                <div class="ver">{APP_VERSION}</div>
             </div>
         """)
-        gr.Markdown(f"{APP_VERSION}", elem_classes=["app-version"])
 
         with gr.Tabs():
             with gr.Tab(t("tab_generate")):
