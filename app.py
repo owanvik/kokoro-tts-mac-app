@@ -70,14 +70,28 @@ def save_ui_language(lang: str) -> str:
     return tr("language_saved")
 
 
-def tr(key: str, lang: str | None = None) -> str:
+_locale_cache: dict[str, dict[str, str]] = {}
+
+
+def _load_locale(lang: str) -> dict[str, str]:
+    if lang not in _locale_cache:
+        path = LOCALES_DIR / f"{lang}.json"
+        try:
+            _locale_cache[lang] = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            _locale_cache[lang] = {}
+    return _locale_cache[lang]
+
+
+def tr(key: str, lang: str | None = None, **kwargs) -> str:
     lang = lang or get_ui_language()
-    path = LOCALES_DIR / f"{lang}.json"
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return data.get(key, key)
-    except Exception:
-        return key
+    text = _load_locale(lang).get(key, key)
+    if kwargs:
+        try:
+            text = text.format(**kwargs)
+        except (KeyError, IndexError):
+            pass
+    return text
 
 
 def _parse_version(tag: str) -> tuple[int, ...]:
@@ -107,25 +121,25 @@ def check_updates_message() -> str:
     try:
         latest_tag, latest_url, _ = get_latest_release()
     except Exception:
-        return f"Versjon: {APP_VERSION} | Oppdateringssjekk utilgjengelig nå."
+        return tr("update_check_failed", version=APP_VERSION)
 
     if _parse_version(latest_tag) > _parse_version(APP_VERSION):
-        return f"Oppdatering tilgjengelig: {latest_tag} (du har {APP_VERSION}). Klar for automatisk oppdatering."
+        return tr("update_available", tag=latest_tag, version=APP_VERSION)
 
-    return f"Du har nyeste versjon ({APP_VERSION})."
+    return tr("up_to_date", version=APP_VERSION)
 
 
 def auto_update() -> str:
     try:
         latest_tag, latest_url, dmg_url = get_latest_release()
     except Exception as e:
-        return f"Kunne ikke sjekke oppdatering nå: {e}"
+        return tr("update_check_error", error=str(e))
 
     if _parse_version(latest_tag) <= _parse_version(APP_VERSION):
-        return f"Du har allerede nyeste versjon ({APP_VERSION})."
+        return tr("already_latest", version=APP_VERSION)
 
     if not dmg_url:
-        return f"Fant ikke DMG i release {latest_tag}. Åpne manuelt: {latest_url}"
+        return tr("dmg_not_found", tag=latest_tag, url=latest_url)
 
     downloads = Path.home() / "Downloads"
     downloads.mkdir(parents=True, exist_ok=True)
@@ -135,12 +149,9 @@ def auto_update() -> str:
         urllib.request.urlretrieve(dmg_url, dmg_path)
         subprocess.Popen(["open", str(dmg_path)])
     except Exception as e:
-        return f"Nedlasting/åpning feilet: {e}"
+        return tr("download_failed", error=str(e))
 
-    return (
-        f"Ny versjon {latest_tag} lastet ned. Installasjonsvindu åpnes nå. "
-        "Dra appen til Applications for å fullføre oppdatering."
-    )
+    return tr("update_downloaded", tag=latest_tag)
 
 
 def _download(url: str, dest: Path) -> None:
@@ -214,28 +225,28 @@ def toggle_favorite(voice: str):
     favorites = load_favorites()
     if voice in favorites:
         favorites.remove(voice)
-        status = f"Fjernet favoritt: {voice}"
+        status = tr("fav_removed", voice=voice)
     else:
         favorites.append(voice)
-        status = f"La til favoritt: {voice}"
+        status = tr("fav_added", voice=voice)
     save_favorites(favorites)
     return gr.update(choices=favorites, value=(favorites[0] if favorites else None)), status
 
 
 def apply_preset(preset: str):
     presets = {
-        "Nøytral": ("Neutral", 1.00, 0.0),
-        "Varsel": ("Urgent", 1.18, 2.0),
-        "Fortelling": ("Narrator", 0.92, -1.0),
-        "Direkte": ("Direct", 1.08, 1.0),
+        "neutral": ("Neutral", 1.00, 0.0),
+        "alert": ("Urgent", 1.18, 2.0),
+        "narration": ("Narrator", 0.92, -1.0),
+        "direct": ("Direct", 1.08, 1.0),
     }
-    style, speed, gain = presets.get(preset, presets["Nøytral"])
+    style, speed, gain = presets.get(preset, presets["neutral"])
     return style, speed, gain
 
 
 def synthesize(text: str, voice: str, speed: float, lang: str, style: str, gain_db: float, output_format: str):
     if not text or not text.strip():
-        raise gr.Error("Skriv inn tekst først")
+        raise gr.Error(tr("error_empty_text"))
 
     # Normalize a few user-friendly aliases to eSpeak-supported language codes.
     lang_alias = {
@@ -255,7 +266,7 @@ def synthesize(text: str, voice: str, speed: float, lang: str, style: str, gain_
             lang=resolved_lang,
         )
     except RuntimeError as e:
-        raise gr.Error(f"Språkkoden '{lang}' støttes ikke av motoren. Prøv f.eks. 'nb' for norsk.") from e
+        raise gr.Error(tr("error_lang_unsupported", lang=lang)) from e
 
     # Volume gain
     audio = np.clip(audio * _db_to_gain(float(gain_db)), -1.0, 1.0)
@@ -265,59 +276,117 @@ def synthesize(text: str, voice: str, speed: float, lang: str, style: str, gain_
     out_path = TMP_DIR / f"kokoro-{stem}.{ext}"
     sf.write(out_path, audio, sample_rate)
 
-    return str(out_path), str(out_path), (
-        f"Klar: {voice} | lang={lang} | style={style} | speed={styled_speed:.2f} | gain={gain_db:+.1f} dB | format={ext.upper()}"
+    return str(out_path), str(out_path), tr(
+        "synth_done", voice=voice, lang=lang, style=style,
+        speed=f"{styled_speed:.2f}", gain=f"{gain_db:+.1f}", format=ext.upper(),
     )
 
 
 def build_ui() -> gr.Blocks:
-    ui_lang = get_ui_language()
+    L = get_ui_language()
+    t = lambda key, **kw: tr(key, L, **kw)
     _, v = ensure_engine()
     default_voice = "af_heart" if "af_heart" in v else v[0]
     favorites = load_favorites()
 
-    with gr.Blocks(title="Kokoro TTS") as demo:
-        gr.Markdown(f"## {tr('title', ui_lang)}")
-        with gr.Row():
-            ui_language = gr.Dropdown(choices=["nb", "en"], value=ui_lang, label=tr("ui_language", ui_lang))
-            save_language_btn = gr.Button(tr("save_language", ui_lang))
-        update_status = gr.Textbox(label=tr("app_status", ui_lang), value=check_updates_message(), interactive=False)
-        with gr.Row():
-            check_update_btn = gr.Button(tr("check_update", ui_lang))
-            auto_update_btn = gr.Button(tr("update_now", ui_lang))
+    theme = gr.themes.Soft(
+        primary_hue=gr.themes.colors.purple,
+        secondary_hue=gr.themes.colors.pink,
+    )
+    css = """
+    .main-btn { min-height: 46px !important; font-size: 1.1em !important; }
+    .app-title { text-align: center; margin-bottom: 0 !important; }
+    .app-version { text-align: center; color: #888; font-size: 0.85em; margin-top: -8px !important; }
+    """
 
-        text = gr.Textbox(lines=6, label=tr("text", ui_lang), placeholder=tr("text_placeholder", ui_lang))
-        with gr.Row():
-            voice = gr.Dropdown(choices=v, value=default_voice, label=tr("voice", ui_lang))
-            favorite_voice = gr.Dropdown(choices=favorites, value=(favorites[0] if favorites else None), label=tr("favorites", ui_lang))
-            fav_btn = gr.Button(tr("toggle_favorite", ui_lang))
-        with gr.Row():
-            lang = gr.Dropdown(
-                choices=["en-us", "en-gb", "nb", "no", "sv", "da", "de", "fr-fr", "es", "it", "pt-br", "ja", "cmn", "zh"],
-                value="en-us",
-                label=tr("language_code", ui_lang),
-            )
-            style = gr.Dropdown(
-                choices=["Neutral", "Direct", "Angry", "Calm", "Warm", "Sad", "Cheerful", "Narrator", "Whisper-ish", "Urgent"],
-                value="Neutral",
-                label=tr("style", ui_lang),
-            )
-            speed = gr.Slider(0.5, 2.0, value=1.0, step=0.05, label=tr("base_speed", ui_lang))
-            gain_db = gr.Slider(-12.0, 12.0, value=0.0, step=0.5, label=tr("volume_db", ui_lang))
-            output_format = gr.Dropdown(choices=["wav", "mp3"], value="wav", label=tr("format", ui_lang))
-        with gr.Row():
-            preset = gr.Dropdown(choices=["Nøytral", "Varsel", "Fortelling", "Direkte"], value="Nøytral", label=tr("preset", ui_lang))
-            apply_preset_btn = gr.Button(tr("apply_preset", ui_lang))
-            btn = gr.Button(tr("generate", ui_lang), variant="primary")
+    with gr.Blocks(title="Kokoro TTS", theme=theme, css=css) as demo:
+        gr.Markdown(f"# 🎵 {t('title')}", elem_classes=["app-title"])
+        gr.Markdown(f"{APP_VERSION}", elem_classes=["app-version"])
 
-        audio = gr.Audio(type="filepath", label=tr("preview", ui_lang))
-        download = gr.File(label=tr("download", ui_lang))
-        info = gr.Textbox(label=tr("info", ui_lang))
+        with gr.Tabs():
+            with gr.Tab(t("tab_generate")):
+                text = gr.Textbox(
+                    lines=5, max_lines=12,
+                    label=t("text"),
+                    placeholder=t("text_placeholder"),
+                )
 
+                with gr.Group():
+                    gr.Markdown(f"#### {t('voice_group')}")
+                    with gr.Row():
+                        voice = gr.Dropdown(choices=v, value=default_voice, label=t("voice"), scale=3)
+                        favorite_voice = gr.Dropdown(
+                            choices=favorites,
+                            value=(favorites[0] if favorites else None),
+                            label=t("favorites"),
+                            scale=2,
+                        )
+                        fav_btn = gr.Button(t("toggle_favorite"), scale=1)
+
+                with gr.Group():
+                    gr.Markdown(f"#### {t('audio_settings')}")
+                    with gr.Row():
+                        lang = gr.Dropdown(
+                            choices=["en-us", "en-gb", "nb", "no", "sv", "da", "de", "fr-fr", "es", "it", "pt-br", "ja", "cmn", "zh"],
+                            value="en-us",
+                            label=t("language_code"),
+                        )
+                        style = gr.Dropdown(
+                            choices=["Neutral", "Direct", "Angry", "Calm", "Warm", "Sad", "Cheerful", "Narrator", "Whisper-ish", "Urgent"],
+                            value="Neutral",
+                            label=t("style"),
+                        )
+                        preset = gr.Dropdown(
+                            choices=[
+                                (t("preset_neutral"), "neutral"),
+                                (t("preset_alert"), "alert"),
+                                (t("preset_narration"), "narration"),
+                                (t("preset_direct"), "direct"),
+                            ],
+                            value="neutral",
+                            label=t("preset"),
+                        )
+                        apply_preset_btn = gr.Button(t("apply_preset"))
+                    with gr.Row():
+                        speed = gr.Slider(0.5, 2.0, value=1.0, step=0.05, label=t("base_speed"))
+                        gain_db = gr.Slider(-12.0, 12.0, value=0.0, step=0.5, label=t("volume_db"))
+                        output_format = gr.Dropdown(choices=["wav", "mp3"], value="wav", label=t("format"))
+
+                btn = gr.Button(t("generate"), variant="primary", elem_classes=["main-btn"])
+
+                audio = gr.Audio(type="filepath", label=t("preview"))
+                with gr.Row():
+                    download = gr.File(label=t("download"))
+                    info = gr.Textbox(label=t("info"), interactive=False)
+
+            with gr.Tab(t("tab_settings")):
+                with gr.Group():
+                    gr.Markdown(f"#### {t('ui_language')}")
+                    with gr.Row():
+                        ui_language = gr.Dropdown(
+                            choices=[("Norsk", "nb"), ("English", "en")],
+                            value=L,
+                            label=t("ui_language"),
+                        )
+                        save_language_btn = gr.Button(t("save_language"))
+                    lang_info = gr.Textbox(label=t("info"), interactive=False)
+
+                with gr.Group():
+                    gr.Markdown(f"#### {t('app_status')}")
+                    update_status = gr.Textbox(
+                        label=t("app_status"),
+                        value=check_updates_message(),
+                        interactive=False,
+                    )
+                    with gr.Row():
+                        check_update_btn = gr.Button(t("check_update"))
+                        auto_update_btn = gr.Button(t("update_now"))
+
+        # Events
         btn.click(fn=synthesize, inputs=[text, voice, speed, lang, style, gain_db, output_format], outputs=[audio, download, info])
         check_update_btn.click(fn=check_updates_message, outputs=[update_status])
         auto_update_btn.click(fn=auto_update, outputs=[update_status])
-        save_language_btn.click(fn=save_ui_language, inputs=[ui_language], outputs=[info])
+        save_language_btn.click(fn=save_ui_language, inputs=[ui_language], outputs=[lang_info])
         fav_btn.click(fn=toggle_favorite, inputs=[voice], outputs=[favorite_voice, info])
         favorite_voice.change(fn=lambda x: x, inputs=[favorite_voice], outputs=[voice])
         apply_preset_btn.click(fn=apply_preset, inputs=[preset], outputs=[style, speed, gain_db])
