@@ -21,14 +21,8 @@ mkdir -p "$STAGE_DIR/.background"
 cp -R "$APP_PATH" "$STAGE_DIR/"
 cp "$BG_SRC" "$STAGE_DIR/.background/background.png"
 
-# Proper Finder alias so Applications icon appears reliably
-osascript <<OSA
-set stagePosix to POSIX file "${STAGE_DIR}" as alias
-tell application "Finder"
-  set newAlias to (make new alias file at stagePosix to POSIX file "/Applications")
-  set name of newAlias to "Applications"
-end tell
-OSA
+# Create Applications shortcut in DMG window
+ln -sfn /Applications "$STAGE_DIR/Applications"
 
 rm -f "$TMP_DMG" "$DMG_PATH"
 
