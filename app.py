@@ -34,12 +34,50 @@ GITHUB_REPO = "owanvik/kokoro-tts-mac-app"
 LATEST_RELEASE_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 LATEST_RELEASE_URL = f"https://github.com/{GITHUB_REPO}/releases/latest"
 FAVORITES_FILE = APP_DIR / "favorites.json"
+SETTINGS_FILE = APP_DIR / "settings.json"
+LOCALES_DIR = BASE_DIR / "locales"
 
 for d in [MODELS_DIR, OUT_DIR, TMP_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
 engine: Kokoro | None = None
 voices: list[str] = []
+
+
+def load_settings() -> dict:
+    try:
+        data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+    return {}
+
+
+def save_settings(data: dict) -> None:
+    SETTINGS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def get_ui_language() -> str:
+    lang = load_settings().get("ui_language", "nb")
+    return lang if lang in {"nb", "en"} else "nb"
+
+
+def save_ui_language(lang: str) -> str:
+    settings = load_settings()
+    settings["ui_language"] = lang if lang in {"nb", "en"} else "nb"
+    save_settings(settings)
+    return tr("language_saved")
+
+
+def tr(key: str, lang: str | None = None) -> str:
+    lang = lang or get_ui_language()
+    path = LOCALES_DIR / f"{lang}.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data.get(key, key)
+    except Exception:
+        return key
 
 
 def _parse_version(tag: str) -> tuple[int, ...]:
@@ -233,48 +271,53 @@ def synthesize(text: str, voice: str, speed: float, lang: str, style: str, gain_
 
 
 def build_ui() -> gr.Blocks:
+    ui_lang = get_ui_language()
     _, v = ensure_engine()
     default_voice = "af_heart" if "af_heart" in v else v[0]
     favorites = load_favorites()
 
     with gr.Blocks(title="Kokoro TTS") as demo:
-        gr.Markdown("## Kokoro TTS WebUI")
-        update_status = gr.Textbox(label="App-status", value=check_updates_message(), interactive=False)
+        gr.Markdown(f"## {tr('title', ui_lang)}")
         with gr.Row():
-            check_update_btn = gr.Button("Sjekk oppdatering")
-            auto_update_btn = gr.Button("Oppdater nå")
+            ui_language = gr.Dropdown(choices=["nb", "en"], value=ui_lang, label=tr("ui_language", ui_lang))
+            save_language_btn = gr.Button(tr("save_language", ui_lang))
+        update_status = gr.Textbox(label=tr("app_status", ui_lang), value=check_updates_message(), interactive=False)
+        with gr.Row():
+            check_update_btn = gr.Button(tr("check_update", ui_lang))
+            auto_update_btn = gr.Button(tr("update_now", ui_lang))
 
-        text = gr.Textbox(lines=6, label="Tekst", placeholder="Skriv tekst her...")
+        text = gr.Textbox(lines=6, label=tr("text", ui_lang), placeholder=tr("text_placeholder", ui_lang))
         with gr.Row():
-            voice = gr.Dropdown(choices=v, value=default_voice, label="Stemme")
-            favorite_voice = gr.Dropdown(choices=favorites, value=(favorites[0] if favorites else None), label="Favoritter")
-            fav_btn = gr.Button("⭐ Toggle favoritt")
+            voice = gr.Dropdown(choices=v, value=default_voice, label=tr("voice", ui_lang))
+            favorite_voice = gr.Dropdown(choices=favorites, value=(favorites[0] if favorites else None), label=tr("favorites", ui_lang))
+            fav_btn = gr.Button(tr("toggle_favorite", ui_lang))
         with gr.Row():
             lang = gr.Dropdown(
                 choices=["en-us", "en-gb", "nb", "no", "sv", "da", "de", "fr-fr", "es", "it", "pt-br", "ja", "cmn", "zh"],
                 value="en-us",
-                label="Språkkode",
+                label=tr("language_code", ui_lang),
             )
             style = gr.Dropdown(
                 choices=["Neutral", "Direct", "Angry", "Calm", "Warm", "Sad", "Cheerful", "Narrator", "Whisper-ish", "Urgent"],
                 value="Neutral",
-                label="Style",
+                label=tr("style", ui_lang),
             )
-            speed = gr.Slider(0.5, 2.0, value=1.0, step=0.05, label="Base hastighet")
-            gain_db = gr.Slider(-12.0, 12.0, value=0.0, step=0.5, label="Volum (dB)")
-            output_format = gr.Dropdown(choices=["wav", "mp3"], value="wav", label="Format")
+            speed = gr.Slider(0.5, 2.0, value=1.0, step=0.05, label=tr("base_speed", ui_lang))
+            gain_db = gr.Slider(-12.0, 12.0, value=0.0, step=0.5, label=tr("volume_db", ui_lang))
+            output_format = gr.Dropdown(choices=["wav", "mp3"], value="wav", label=tr("format", ui_lang))
         with gr.Row():
-            preset = gr.Dropdown(choices=["Nøytral", "Varsel", "Fortelling", "Direkte"], value="Nøytral", label="Preset")
-            apply_preset_btn = gr.Button("Bruk preset")
-            btn = gr.Button("Generer", variant="primary")
+            preset = gr.Dropdown(choices=["Nøytral", "Varsel", "Fortelling", "Direkte"], value="Nøytral", label=tr("preset", ui_lang))
+            apply_preset_btn = gr.Button(tr("apply_preset", ui_lang))
+            btn = gr.Button(tr("generate", ui_lang), variant="primary")
 
-        audio = gr.Audio(type="filepath", label="Forhåndslytt")
-        download = gr.File(label="Nedlasting")
-        info = gr.Textbox(label="Info")
+        audio = gr.Audio(type="filepath", label=tr("preview", ui_lang))
+        download = gr.File(label=tr("download", ui_lang))
+        info = gr.Textbox(label=tr("info", ui_lang))
 
         btn.click(fn=synthesize, inputs=[text, voice, speed, lang, style, gain_db, output_format], outputs=[audio, download, info])
         check_update_btn.click(fn=check_updates_message, outputs=[update_status])
         auto_update_btn.click(fn=auto_update, outputs=[update_status])
+        save_language_btn.click(fn=save_ui_language, inputs=[ui_language], outputs=[info])
         fav_btn.click(fn=toggle_favorite, inputs=[voice], outputs=[favorite_voice, info])
         favorite_voice.change(fn=lambda x: x, inputs=[favorite_voice], outputs=[voice])
         apply_preset_btn.click(fn=apply_preset, inputs=[preset], outputs=[style, speed, gain_db])

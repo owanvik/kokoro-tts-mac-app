@@ -16,6 +16,7 @@ pyinstaller \
   --add-data "VERSION:." \
   --add-data "icons/kokorotts.png:icons" \
   --add-data "icons/kokorotts-menubar.png:icons" \
+  --add-data "locales:locales" \
   --collect-data safehttpx \
   --collect-data groovy \
   --collect-all kokoro_onnx \
