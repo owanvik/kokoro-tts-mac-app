@@ -426,16 +426,20 @@ def synthesize(text: str, voice: str, speed: float, lang: str, style: str, gain_
     # Volume gain
     audio = np.clip(audio * _db_to_gain(float(gain_db)), -1.0, 1.0)
 
-    stem = re.sub(r'[^\w-]', '_', voice)
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    # Build filename from text (max 40 chars), sanitised
+    snippet = text.strip()[:40].rstrip()
+    snippet_safe = re.sub(r'[^\w\s-]', '', snippet).strip()
+    snippet_safe = re.sub(r'\s+', '_', snippet_safe) or "clip"
+    timestamp = datetime.now().strftime('%H%M%S')
     ext = "mp3" if output_format.lower() == "mp3" else "wav"
-    filename = f"KokoroTTS_{stem}_{lang}_{style}_{timestamp}.{ext}"
+    filename = f"{snippet_safe}_{timestamp}.{ext}"
     out_path = OUT_DIR / filename
     sf.write(out_path, audio, sample_rate)
 
-    new_history = list(history or []) + [str(out_path)]
-    # Labels for dropdown: just the filename
-    history_choices = [(Path(p).name, p) for p in new_history]
+    # Label for history list: truncated text + time
+    label = f"{snippet[:30]}{'…' if len(text.strip()) > 30 else ''} ({timestamp[:2]}:{timestamp[2:4]})"
+    new_history = list(history or []) + [(label, str(out_path))]
+    history_choices = [(lbl, path) for lbl, path in new_history]
 
     return (
         str(out_path),
