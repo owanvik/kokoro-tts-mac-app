@@ -22,11 +22,29 @@ chmod +x build-mac-app.sh
 Resultat:
 - `tools/kokoro-webui/dist/KokoroTTS.app`
 
-## Dele med kollega
+## Bygg enkel installasjon (.dmg)
 
-1. Høyreklikk `KokoroTTS.app` → **Compress**
-2. Del `KokoroTTS.app.zip`
-3. Første oppstart kan bruke litt tid (modellfiler lastes ned ved behov og lagres i `~/Library/Application Support/KokoroTTS/models`).
+```bash
+cd tools/kokoro-webui
+chmod +x make-dmg.sh
+./make-dmg.sh
+```
+
+Resultat:
+- `tools/kokoro-webui/dist/KokoroTTS-mac-arm64.dmg`
+
+## Dele med kollega (enkelest)
+
+1. Del `.dmg`-filen
+2. Mottaker åpner DMG
+3. Dra `KokoroTTS.app` til `Applications`
+4. Åpne appen
+
+Første oppstart kan bruke litt tid (modellfiler lastes ned ved behov og lagres i `~/Library/Application Support/KokoroTTS/models`).
+
+Hvis macOS blokkerer appen første gang:
+- Høyreklikk appen → **Open**
+- Eller gå til **System Settings → Privacy & Security → Open Anyway**
 
 ## Notat om språk
 
