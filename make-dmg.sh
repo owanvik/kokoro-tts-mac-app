@@ -24,7 +24,8 @@ cp "$BG_SRC" "$STAGE_DIR/.background/background.png"
 osascript <<OSA
 set stagePosix to POSIX file "${STAGE_DIR}" as alias
 tell application "Finder"
-  make new alias file at stagePosix to POSIX file "/Applications"
+  set newAlias to (make new alias file at stagePosix to POSIX file "/Applications")
+  set name of newAlias to "Applications"
 end tell
 OSA
 
