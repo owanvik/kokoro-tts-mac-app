@@ -15,7 +15,14 @@ fi
 rm -rf "$STAGE_DIR"
 mkdir -p "$STAGE_DIR"
 cp -R "$APP_PATH" "$STAGE_DIR/"
-ln -s /Applications "$STAGE_DIR/Applications"
+
+# Create a proper Finder alias (shows Applications icon more reliably than symlink)
+osascript <<OSA
+set stagePosix to POSIX file "${STAGE_DIR}" as alias
+tell application "Finder"
+  make new alias file at stagePosix to POSIX file "/Applications"
+end tell
+OSA
 
 rm -f "$DMG_PATH"
 hdiutil create -volname "$VOL_NAME" -srcfolder "$STAGE_DIR" -ov -format UDZO "$DMG_PATH"
