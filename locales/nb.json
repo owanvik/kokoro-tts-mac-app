@@ -54,5 +54,9 @@
   "model_settings": "Modell",
   "model_version": "Modellversjon",
   "model_switched": "Byttet til modell {version}. Stemmene er oppdatert.",
-  "model_switch_error": "Kunne ikke bytte modell: {error}"
+  "model_switch_error": "Kunne ikke bytte modell: {error}",
+  "security_settings": "Sikkerhet",
+  "enable_ssl": "Bruk HTTPS (SSL)",
+  "ssl_restart_required": "SSL-innstilling lagret. Start appen på nytt for å aktivere.",
+  "loading_model": "Laster modell…"
 }

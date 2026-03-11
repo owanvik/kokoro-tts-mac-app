@@ -589,6 +589,14 @@ def build_ui() -> gr.Blocks:
                     model_info = gr.Textbox(label=t("info"), interactive=False)
 
                 with gr.Group():
+                    gr.Markdown(f"#### {t('security_settings')}")
+                    ssl_enabled = gr.Checkbox(
+                        value=load_settings().get("ssl_enabled", False),
+                        label=t("enable_ssl"),
+                    )
+                    ssl_info = gr.Textbox(label=t("info"), interactive=False)
+
+                with gr.Group():
                     gr.Markdown(f"#### {t('app_status')}")
                     update_status = gr.Textbox(
                         label=t("app_status"),
@@ -656,6 +664,14 @@ def build_ui() -> gr.Blocks:
         favorite_voice.change(fn=lambda x: x, inputs=[favorite_voice], outputs=[voice])
         preset.change(fn=apply_preset, inputs=[preset], outputs=[style, speed, gain_db])
 
+        def _toggle_ssl(enabled):
+            settings = load_settings()
+            settings["ssl_enabled"] = enabled
+            save_settings(settings)
+            return tr("ssl_restart_required")
+
+        ssl_enabled.change(fn=_toggle_ssl, inputs=[ssl_enabled], outputs=[ssl_info])
+
     return demo
 
 
@@ -686,12 +702,13 @@ def _ensure_ssl() -> tuple[str, str] | None:
 
 if __name__ == "__main__":
     ui = build_ui()
-    ssl = _ensure_ssl()
     launch_kwargs = dict(
         server_name="0.0.0.0",
         server_port=7861,
         allowed_paths=[str(TMP_DIR), str(OUT_DIR), str(BASE_DIR)],
     )
-    if ssl:
-        launch_kwargs["ssl_certfile"], launch_kwargs["ssl_keyfile"] = ssl
+    if load_settings().get("ssl_enabled", False):
+        ssl = _ensure_ssl()
+        if ssl:
+            launch_kwargs["ssl_certfile"], launch_kwargs["ssl_keyfile"] = ssl
     ui.launch(**launch_kwargs)

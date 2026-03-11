@@ -54,5 +54,9 @@
   "model_settings": "Model",
   "model_version": "Model version",
   "model_switched": "Switched to model {version}. Voices updated.",
-  "model_switch_error": "Could not switch model: {error}"
+  "model_switch_error": "Could not switch model: {error}",
+  "security_settings": "Security",
+  "enable_ssl": "Use HTTPS (SSL)",
+  "ssl_restart_required": "SSL setting saved. Restart the app to apply.",
+  "loading_model": "Loading model…"
 }

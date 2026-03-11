@@ -1,56 +1,7 @@
 #!/usr/bin/env python3
-"""Mac menubar launcher for Kokoro TTS WebUI."""
-
-from __future__ import annotations
-
-import os
-import sys
-import threading
-import time
-import webbrowser
-from pathlib import Path
-
-import rumps
-
-from app import build_ui
-
-URL = "http://127.0.0.1:7861"
-
-
-def resource_path(relative: str) -> str:
-    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
-    return str(base / relative)
-
-
-def start_webui() -> None:
-    ui = build_ui()
-    ui.launch(
-        server_name="127.0.0.1",
-        server_port=7861,
-        inbrowser=False,
-        share=False,
-        prevent_thread_lock=True,
-    )
-
-
-class KokoroMenuBar(rumps.App):
-    def __init__(self):
-        icon_file = resource_path("icons/kokorotts-menubar.png")
-        super().__init__("KokoroTTS", icon=icon_file, template=True, quit_button=None)
-        self.menu = ["Åpne KokoroTTS", "Avslutt KokoroTTS"]
-
-    @rumps.clicked("Åpne KokoroTTS")
-    def open_ui(self, _):
-        webbrowser.open(URL)
-
-    @rumps.clicked("Avslutt KokoroTTS")
-    def quit_app(self, _):
-        rumps.quit_application()
-        os._exit(0)
-
+"""Mac .app entry point for Kokoro TTS – launches native GUI."""
+from gui import main
 
 if __name__ == "__main__":
-    threading.Thread(target=start_webui, daemon=True).start()
-    time.sleep(1.5)
-    webbrowser.open(URL)
-    KokoroMenuBar().run()
+    main()
+

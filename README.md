@@ -1,10 +1,13 @@
 # KokoroTTS for macOS
 
-KokoroTTS er en enkel lokal TTS-app for macOS med:
+KokoroTTS er en lokal, native macOS TTS-app med:
 - stemmevalg
 - språkvalg (inkl. norsk)
 - style-presets (f.eks. Direct, Angry, Calm)
-- forhåndslytt + nedlasting av lydfil
+- forhåndslytt + eksport av lydfil
+
+Eksporterte filer lagres i `exports/` og inkluderer stemmenavn i filnavnet:
+- `voice_textsnippet_HHMMSS.wav` (eller `.mp3`)
 
 ## Last ned
 
@@ -24,17 +27,20 @@ Hvis macOS blokkerer første gang:
 - Høyreklikk appen → **Open**
 - Eller **System Settings → Privacy & Security → Open Anyway**
 
-## Bruk
-
-Appen åpner nettsiden automatisk. Hvis ikke:
-- http://127.0.0.1:7861
-
-Første oppstart kan ta litt tid fordi modellfiler lastes ned automatisk.
-
-## Oppdatering
+## Oppdatering i appen
 
 Appen sjekker ny versjon ved oppstart.
-Ved ny versjon kan brukeren trykke **Oppdater nå** i appen:
-- appen laster ned ny DMG automatisk
-- åpner installasjonsvinduet automatisk
-- bruker drar ny app til Applications
+Ved ny versjon kan brukeren trykke **Oppdater nå**:
+- appen laster ned ny DMG automatisk fra GitHub Release
+- installasjonsvindu åpnes automatisk
+- bruker drar ny app til `Applications`
+
+## Publisere ny versjon
+
+1. Oppdater `VERSION` (f.eks. `0.7.2`)
+2. Bygg app: `./build-mac-app.sh`
+3. Lag DMG: `./make-dmg.sh`
+4. Push kode + tag (`vX.Y.Z`) til GitHub
+5. Last opp `dist/KokoroTTS-mac-arm64.dmg` som release-asset
+
+For at auto-oppdatering skal fungere må release-tag være høyere enn appens `VERSION`, og releasen må inneholde en `.dmg`-fil.

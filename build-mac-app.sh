@@ -12,22 +12,19 @@ pyinstaller \
   --windowed \
   --name "KokoroTTS" \
   --icon "icons/kokorotts.icns" \
-  --add-data "app.py:." \
+  --add-data "core.py:." \
+  --add-data "gui.py:." \
   --add-data "VERSION:." \
   --add-data "kokorotts.png:." \
   --add-data "icons/kokorotts.png:icons" \
-  --add-data "icons/kokorotts-menubar.png:icons" \
   --add-data "locales:locales" \
-  --collect-data safehttpx \
-  --collect-data groovy \
   --collect-all kokoro_onnx \
   --collect-all phonemizer \
   --collect-all segments \
   --collect-all csvw \
   --collect-all language_tags \
   --collect-all espeakng_loader \
-  --collect-all gradio \
-  --collect-all rumps \
+  --collect-all customtkinter \
   launcher.py
 
 PLIST="$(pwd)/dist/KokoroTTS.app/Contents/Info.plist"
