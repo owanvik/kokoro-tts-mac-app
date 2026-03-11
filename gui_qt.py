@@ -1,0 +1,979 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import sys
+import shutil
+import time
+from datetime import datetime
+from pathlib import Path
+
+import numpy as np
+import sounddevice as sd
+import soundfile as sf
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
+from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDoubleSpinBox,
+    QFileDialog,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QSlider,
+    QTabWidget,
+    QScrollArea,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+    QTextEdit,
+)
+
+from core import (
+    APP_DISPLAY_VERSION,
+    APP_VERSION,
+    BASE_DIR,
+    LANGUAGE_CHOICES,
+    MODEL_REGISTRY,
+    STYLES,
+    apply_preset,
+    auto_update,
+    check_updates_message,
+    ensure_engine,
+    get_model_version,
+    get_ui_language,
+    load_favorites,
+    load_settings,
+    save_settings,
+    synthesize,
+    toggle_favorite,
+    tr,
+    voices_for_lang,
+)
+
+
+class AudioPlayerWidget(QWidget):
+    def __init__(self) -> None:
+        super().__init__()
+        self._audio: np.ndarray | None = None
+        self._sr: int = 24000
+        self._duration: float = 0.0
+        self._playing = False
+        self._paused = False
+        self._play_start: float = 0.0
+        self._pause_offset: float = 0.0
+        self._updating_slider = False
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        self.waveform = WaveformWidget()
+        layout.addWidget(self.waveform)
+
+        self.position_slider = QSlider(Qt.Horizontal)
+        self.position_slider.setObjectName("timeline")
+        self.position_slider.setRange(0, 1000)
+        self.position_slider.setValue(0)
+        self.position_slider.sliderPressed.connect(self._on_seek_press)
+        self.position_slider.sliderReleased.connect(self._on_seek_release)
+        layout.addWidget(self.position_slider)
+
+        row = QHBoxLayout()
+        self.time_label = QLabel("0:00 / 0:00")
+        row.addWidget(self.time_label)
+        row.addStretch(1)
+
+        self.rewind_btn = QPushButton("⏮")
+        self.rewind_btn.setFixedWidth(36)
+        self.rewind_btn.clicked.connect(self._rewind)
+        row.addWidget(self.rewind_btn)
+
+        self.play_btn = QPushButton("▶")
+        self.play_btn.setObjectName("primary")
+        self.play_btn.setFixedWidth(44)
+        self.play_btn.clicked.connect(self._toggle_play)
+        row.addWidget(self.play_btn)
+
+        self.forward_btn = QPushButton("⏭")
+        self.forward_btn.setFixedWidth(36)
+        self.forward_btn.clicked.connect(self._forward)
+        row.addWidget(self.forward_btn)
+
+        layout.addLayout(row)
+
+        self._timer = self.startTimer(80)
+
+    def load_file(self, path: str) -> None:
+        self.stop()
+        try:
+            data, sr = sf.read(path)
+        except Exception:
+            self._audio = None
+            self._duration = 0.0
+            self._update_time(0.0)
+            return
+
+        if isinstance(data, np.ndarray) and data.ndim > 1:
+            data = data.mean(axis=1)
+
+        self._audio = np.ascontiguousarray(data, dtype=np.float32)
+        self._sr = int(sr)
+        self._duration = float(len(self._audio) / self._sr) if self._sr > 0 else 0.0
+        self.position_slider.setValue(0)
+        self.waveform.set_audio(self._audio)
+        self.waveform.set_position(0.0, self._duration)
+        self._update_time(0.0)
+
+    def stop(self) -> None:
+        self._playing = False
+        self._paused = False
+        self._pause_offset = 0.0
+        sd.stop()
+        self.play_btn.setText("▶")
+
+    def _toggle_play(self) -> None:
+        if self._playing and not self._paused:
+            self._pause()
+        elif self._paused:
+            self._resume()
+        else:
+            self._play(self._pause_offset)
+
+    def _play(self, offset: float = 0.0) -> None:
+        if self._audio is None or self._duration <= 0:
+            return
+        self.stop()
+        self._playing = True
+        self._paused = False
+        self._pause_offset = max(0.0, min(offset, max(0.0, self._duration - 0.05)))
+
+        start_frame = int(self._pause_offset * self._sr)
+        sd.play(
+            self._audio[start_frame:],
+            self._sr,
+            blocking=False,
+            latency="high",
+            blocksize=2048,
+        )
+        self._play_start = time.time() - self._pause_offset
+        self.play_btn.setText("⏸")
+
+    def _pause(self) -> None:
+        if not self._playing:
+            return
+        self._paused = True
+        self._pause_offset = self._current_position()
+        sd.stop()
+        self.play_btn.setText("▶")
+
+    def _resume(self) -> None:
+        self._play(self._pause_offset)
+
+    def _rewind(self) -> None:
+        if self._audio is None:
+            return
+        target = max(0.0, self._current_position() - 5.0)
+        if self._playing or self._paused:
+            self._play(target)
+        else:
+            self._pause_offset = target
+            self._set_slider_from_pos(target)
+            self._update_time(target)
+
+    def _forward(self) -> None:
+        if self._audio is None:
+            return
+        target = min(self._duration, self._current_position() + 5.0)
+        if self._playing or self._paused:
+            self._play(target)
+        else:
+            self._pause_offset = target
+            self._set_slider_from_pos(target)
+            self._update_time(target)
+
+    def _on_seek_press(self) -> None:
+        if self._playing and not self._paused:
+            self._pause()
+
+    def _on_seek_release(self) -> None:
+        if self._duration <= 0:
+            return
+        frac = self.position_slider.value() / 1000.0
+        target = frac * self._duration
+        self._pause_offset = target
+        self.waveform.set_position(target, self._duration)
+        self._update_time(target)
+
+    def _current_position(self) -> float:
+        if self._playing and not self._paused:
+            return max(0.0, min(self._duration, time.time() - self._play_start))
+        return max(0.0, min(self._duration, self._pause_offset))
+
+    def _set_slider_from_pos(self, pos: float) -> None:
+        if self._duration <= 0:
+            self.position_slider.setValue(0)
+            return
+        self._updating_slider = True
+        self.position_slider.setValue(int((pos / self._duration) * 1000))
+        self._updating_slider = False
+        self.waveform.set_position(pos, self._duration)
+
+    def _fmt(self, sec: float) -> str:
+        s = max(0, int(sec))
+        m, r = divmod(s, 60)
+        return f"{m}:{r:02d}"
+
+    def _update_time(self, pos: float) -> None:
+        self.time_label.setText(f"{self._fmt(pos)} / {self._fmt(self._duration)}")
+
+    def timerEvent(self, event) -> None:
+        if event.timerId() != self._timer:
+            return
+        if self._duration <= 0 or self._updating_slider:
+            return
+        pos = self._current_position()
+        if self._playing and not self._paused and pos >= self._duration:
+            self.stop()
+            self._set_slider_from_pos(self._duration)
+            self._update_time(self._duration)
+            return
+        self._set_slider_from_pos(pos)
+        self._update_time(pos)
+
+
+class WaveformWidget(QWidget):
+    def __init__(self) -> None:
+        super().__init__()
+        self.setMinimumHeight(72)
+        self._peaks: list[float] = []
+        self._progress: float = 0.0
+
+    def set_audio(self, audio: np.ndarray | None) -> None:
+        if audio is None or len(audio) == 0:
+            self._peaks = []
+            self.update()
+            return
+        bars = 220
+        chunk = max(1, len(audio) // bars)
+        peaks = []
+        for i in range(0, len(audio), chunk):
+            segment = audio[i : i + chunk]
+            peaks.append(float(np.max(np.abs(segment))) if len(segment) else 0.0)
+        m = max(peaks) if peaks else 1.0
+        self._peaks = [p / m if m > 0 else 0.0 for p in peaks]
+        self._progress = 0.0
+        self.update()
+
+    def set_position(self, pos: float, duration: float) -> None:
+        self._progress = max(0.0, min(1.0, (pos / duration) if duration > 0 else 0.0))
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        rect = self.rect()
+        painter.fillRect(rect, QColor("#111114"))
+
+        if not self._peaks:
+            painter.setPen(QPen(QColor("#5c5c6a"), 2))
+            y_mid = rect.center().y()
+            for x in range(4, rect.width(), 6):
+                painter.drawLine(x, y_mid - 3, x, y_mid + 3)
+            return
+
+        n = len(self._peaks)
+        if n <= 0:
+            return
+        w = rect.width()
+        h = rect.height()
+        mid = h / 2
+        bar_step = max(1.0, w / n)
+        progress_x = w * self._progress
+
+        played_pen = QPen(QColor("#f97316"), max(1.2, bar_step * 0.7), Qt.SolidLine, Qt.RoundCap)
+        rest_pen = QPen(QColor("#2a2a34"), max(1.2, bar_step * 0.7), Qt.SolidLine, Qt.RoundCap)
+
+        for i, peak in enumerate(self._peaks):
+            x = i * bar_step
+            amp = max(2.0, peak * (mid - 4))
+            painter.setPen(played_pen if x <= progress_x else rest_pen)
+            painter.drawLine(int(x), int(mid - amp), int(x), int(mid + amp))
+
+
+class KokoroQtWindow(QMainWindow):
+    def __init__(self) -> None:
+        super().__init__()
+        self._L = get_ui_language()
+        self.setWindowTitle(f"Kokoro TTS {APP_DISPLAY_VERSION}")
+        self.resize(900, 840)
+        self.setMinimumSize(720, 640)
+
+        self._voices: list[str] = []
+        self._history: list[tuple[str, str]] = []
+        self._selected_history: int = 0
+        self._lang_display_to_code = {name: code for name, code in LANGUAGE_CHOICES}
+        self._preset_keys = ["neutral", "alert", "narration", "direct"]
+
+        self._status = QLabel(self._t("loading_model"))
+
+        self._build_ui()
+        self._configure_tab_navigation()
+        self._apply_styles()
+        self._init_engine()
+
+    def _t(self, key: str, **kw) -> str:
+        return tr(key, self._L, **kw)
+
+    def _set_status(self, msg: str) -> None:
+        self._status.setText(msg)
+
+    def _card(self, title: str) -> tuple[QWidget, QVBoxLayout]:
+        card = QWidget()
+        card.setObjectName("card")
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(12, 10, 12, 10)
+        card_layout.setSpacing(8)
+        label = QLabel(title)
+        label.setObjectName("sectionTitle")
+        card_layout.addWidget(label)
+        return card, card_layout
+
+    def _build_ui(self) -> None:
+        root = QWidget()
+        root_layout = QVBoxLayout(root)
+        root_layout.setContentsMargins(12, 10, 12, 12)
+        root_layout.setSpacing(8)
+
+        header_row = QHBoxLayout()
+        logo = self._build_logo_label()
+        if logo is not None:
+            header_row.addWidget(logo)
+        title = QLabel("Kokoro TTS")
+        title.setObjectName("appTitle")
+        version = QLabel(APP_DISPLAY_VERSION)
+        version.setObjectName("appVersion")
+        header_row.addWidget(title)
+        header_row.addWidget(version)
+        header_row.addStretch(1)
+        root_layout.addLayout(header_row)
+
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self._build_generate_tab(), self._t("tab_generate"))
+        self.tabs.addTab(self._build_settings_tab(), self._t("tab_settings"))
+        root_layout.addWidget(self.tabs, 1)
+
+        self._status.setWordWrap(True)
+        self._status.setObjectName("status")
+        root_layout.addWidget(self._status)
+
+        self.setCentralWidget(root)
+
+    def _build_logo_label(self) -> QLabel | None:
+        candidates = [
+            BASE_DIR / "kokorotts.png",
+            BASE_DIR / "icons" / "kokorotts.png",
+        ]
+        for path in candidates:
+            if not path.exists():
+                continue
+            pixmap = QPixmap(str(path))
+            if pixmap.isNull():
+                continue
+            logo = QLabel()
+            logo.setPixmap(
+                pixmap.scaled(36, 36, Qt.KeepAspectRatio, Qt.SmoothTransformation),
+            )
+            logo.setFixedSize(38, 38)
+            return logo
+        return None
+
+    def _build_generate_tab(self) -> QWidget:
+        tab = QWidget()
+        tab_layout = QVBoxLayout(tab)
+        tab_layout.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(8)
+
+        text_card, text_layout = self._card(self._t("text"))
+        self.text_input = QTextEdit()
+        self.text_input.setObjectName("inputField")
+        self.text_input.setMinimumHeight(110)
+        self.text_input.setTabChangesFocus(True)
+        self.text_input.viewport().setStyleSheet("background-color: #0c0c0e;")
+        text_layout.addWidget(self.text_input)
+        content_layout.addWidget(text_card)
+
+        voice_card, voice_layout = self._card(self._t("voice_group"))
+        voice_grid = QGridLayout()
+        voice_grid.setHorizontalSpacing(8)
+        voice_grid.setVerticalSpacing(6)
+        voice_grid.setColumnStretch(0, 3)
+        voice_grid.setColumnStretch(1, 2)
+
+        self.voice_combo = QComboBox()
+        self.voice_combo.setObjectName("inputField")
+        self.voice_combo.addItem("…")
+        self.fav_combo = QComboBox()
+        self.fav_combo.setObjectName("inputField")
+        favs = load_favorites()
+        self.fav_combo.addItems(favs if favs else ["—"])
+        self.fav_combo.currentTextChanged.connect(self._on_fav_select)
+        self.fav_btn = QPushButton("⭐")
+        self.fav_btn.setFixedWidth(48)
+        self.fav_btn.clicked.connect(self._on_toggle_fav)
+
+        voice_grid.addWidget(QLabel(self._t("voice")), 0, 0)
+        voice_grid.addWidget(QLabel(self._t("favorites")), 0, 1)
+        voice_grid.addWidget(self.voice_combo, 1, 0)
+        voice_grid.addWidget(self.fav_combo, 1, 1)
+        voice_grid.addWidget(self.fav_btn, 1, 2)
+        voice_layout.addLayout(voice_grid)
+        content_layout.addWidget(voice_card)
+
+        audio_card, audio_layout = self._card(self._t("audio_settings"))
+        audio_grid = QGridLayout()
+        audio_grid.setHorizontalSpacing(8)
+        audio_grid.setVerticalSpacing(6)
+
+        self.lang_combo = QComboBox()
+        self.lang_combo.setObjectName("inputField")
+        for name, code in LANGUAGE_CHOICES:
+            self.lang_combo.addItem(name, code)
+        self.lang_combo.currentTextChanged.connect(self._on_lang_change)
+
+        self.style_combo = QComboBox()
+        self.style_combo.setObjectName("inputField")
+        self.style_combo.addItems(STYLES)
+
+        self.preset_combo = QComboBox()
+        self.preset_combo.setObjectName("inputField")
+        self._refresh_preset_names()
+        self.preset_combo.currentTextChanged.connect(self._on_preset)
+
+        self.speed_spin = QDoubleSpinBox()
+        self.speed_spin.setObjectName("inputField")
+        self.speed_spin.setRange(0.5, 2.0)
+        self.speed_spin.setSingleStep(0.05)
+        self.speed_spin.setValue(1.0)
+
+        self.gain_spin = QDoubleSpinBox()
+        self.gain_spin.setObjectName("inputField")
+        self.gain_spin.setRange(-12.0, 12.0)
+        self.gain_spin.setSingleStep(0.5)
+        self.gain_spin.setValue(0.0)
+
+        self.format_combo = QComboBox()
+        self.format_combo.setObjectName("inputField")
+        self.format_combo.addItems(["wav", "mp3"])
+
+        audio_grid.addWidget(QLabel(self._t("language_code")), 0, 0)
+        audio_grid.addWidget(QLabel(self._t("style")), 0, 1)
+        audio_grid.addWidget(QLabel(self._t("preset")), 0, 2)
+        audio_grid.addWidget(self.lang_combo, 1, 0)
+        audio_grid.addWidget(self.style_combo, 1, 1)
+        audio_grid.addWidget(self.preset_combo, 1, 2)
+
+        audio_grid.addWidget(QLabel(self._t("base_speed")), 2, 0)
+        audio_grid.addWidget(QLabel(self._t("volume_db")), 2, 1)
+        audio_grid.addWidget(QLabel(self._t("format")), 2, 2)
+        audio_grid.addWidget(self.speed_spin, 3, 0)
+        audio_grid.addWidget(self.gain_spin, 3, 1)
+        audio_grid.addWidget(self.format_combo, 3, 2)
+
+        audio_layout.addLayout(audio_grid)
+        content_layout.addWidget(audio_card)
+
+        self.generate_btn = QPushButton(self._t("generate"))
+        self.generate_btn.setObjectName("primary")
+        self.generate_btn.setMinimumHeight(40)
+        self.generate_btn.clicked.connect(self._on_generate)
+        content_layout.addWidget(self.generate_btn)
+
+        player_card, player_layout = self._card("Player")
+        self.player = AudioPlayerWidget()
+        player_layout.addWidget(self.player)
+        content_layout.addWidget(player_card)
+
+        history_card, history_layout = self._card(self._t("history"))
+        self.history_list = QListWidget()
+        self.history_list.setObjectName("inputField")
+        self.history_list.viewport().setStyleSheet("background-color: #0c0c0e;")
+        self.history_list.itemClicked.connect(self._on_history_select)
+        self.history_list.setMinimumHeight(170)
+        history_layout.addWidget(self.history_list)
+
+        self.save_btn = QPushButton("⬇  " + self._t("download"))
+        self.save_btn.setMinimumHeight(34)
+        self.save_btn.clicked.connect(self._on_save)
+        history_layout.addWidget(self.save_btn)
+        content_layout.addWidget(history_card)
+
+        content_layout.addStretch(1)
+        scroll.setWidget(content)
+        tab_layout.addWidget(scroll)
+        return tab
+
+    def _configure_tab_navigation(self) -> None:
+        QWidget.setTabOrder(self.text_input, self.voice_combo)
+        QWidget.setTabOrder(self.voice_combo, self.fav_combo)
+        QWidget.setTabOrder(self.fav_combo, self.fav_btn)
+        QWidget.setTabOrder(self.fav_btn, self.lang_combo)
+        QWidget.setTabOrder(self.lang_combo, self.style_combo)
+        QWidget.setTabOrder(self.style_combo, self.preset_combo)
+        QWidget.setTabOrder(self.preset_combo, self.speed_spin)
+        QWidget.setTabOrder(self.speed_spin, self.gain_spin)
+        QWidget.setTabOrder(self.gain_spin, self.format_combo)
+        QWidget.setTabOrder(self.format_combo, self.generate_btn)
+        QWidget.setTabOrder(self.generate_btn, self.player.position_slider)
+        QWidget.setTabOrder(self.player.position_slider, self.player.rewind_btn)
+        QWidget.setTabOrder(self.player.rewind_btn, self.player.play_btn)
+        QWidget.setTabOrder(self.player.play_btn, self.player.forward_btn)
+        QWidget.setTabOrder(self.player.forward_btn, self.history_list)
+        QWidget.setTabOrder(self.history_list, self.save_btn)
+        QWidget.setTabOrder(self.save_btn, self.ui_lang_combo)
+        QWidget.setTabOrder(self.ui_lang_combo, self.show_all_chk)
+        QWidget.setTabOrder(self.show_all_chk, self.model_combo)
+        QWidget.setTabOrder(self.model_combo, self.check_update_btn)
+        QWidget.setTabOrder(self.check_update_btn, self.auto_update_btn)
+
+    def _build_settings_tab(self) -> QWidget:
+        tab = QWidget()
+        tab_layout = QVBoxLayout(tab)
+        tab_layout.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(8)
+
+        lang_card, lang_layout = self._card(self._t("ui_language"))
+        self.ui_lang_combo = QComboBox()
+        self.ui_lang_combo.setObjectName("inputField")
+        self.ui_lang_combo.addItems(["Norsk", "English"])
+        self.ui_lang_combo.setCurrentText("Norsk" if self._L == "nb" else "English")
+        self.ui_lang_combo.currentTextChanged.connect(self._on_uilang)
+        lang_layout.addWidget(self.ui_lang_combo)
+        content_layout.addWidget(lang_card)
+
+        voice_card, voice_layout = self._card(self._t("voice_settings"))
+        self.show_all_chk = QCheckBox(self._t("show_all_voices"))
+        self.show_all_chk.setChecked(bool(load_settings().get("show_all_voices", False)))
+        self.show_all_chk.stateChanged.connect(self._on_show_all)
+        voice_layout.addWidget(self.show_all_chk)
+        content_layout.addWidget(voice_card)
+
+        model_card, model_layout = self._card(self._t("model_settings"))
+        self.model_combo = QComboBox()
+        self.model_combo.setObjectName("inputField")
+        self.model_combo.addItems([f"Kokoro {k}" for k in MODEL_REGISTRY])
+        self.model_combo.setCurrentText(f"Kokoro {get_model_version()}")
+        self.model_combo.currentTextChanged.connect(self._on_model)
+        self.model_info = QLabel("")
+        self.model_info.setWordWrap(True)
+        model_layout.addWidget(self.model_combo)
+        model_layout.addWidget(self.model_info)
+        content_layout.addWidget(model_card)
+
+        update_card, update_layout = self._card(self._t("app_status"))
+        self.update_label = QLabel(APP_DISPLAY_VERSION)
+        self.update_label.setWordWrap(True)
+        update_layout.addWidget(self.update_label)
+        update_row = QHBoxLayout()
+        self.check_update_btn = QPushButton(self._t("check_update"))
+        self.check_update_btn.setMinimumHeight(34)
+        self.check_update_btn.clicked.connect(self._on_check_update)
+        self.auto_update_btn = QPushButton(self._t("update_now"))
+        self.auto_update_btn.setObjectName("primary")
+        self.auto_update_btn.setMinimumHeight(34)
+        self.auto_update_btn.clicked.connect(self._on_auto_update)
+        update_row.addWidget(self.check_update_btn)
+        update_row.addWidget(self.auto_update_btn)
+        update_row.addStretch(1)
+        update_layout.addLayout(update_row)
+        content_layout.addWidget(update_card)
+
+        content_layout.addStretch(1)
+        scroll.setWidget(content)
+        tab_layout.addWidget(scroll)
+        return tab
+
+    def _apply_styles(self) -> None:
+        self.setStyleSheet(
+            """
+            QMainWindow, QWidget { background: #0c0c0e; color: #ebebf0; }
+
+            QTabWidget { background: transparent; }
+            #card {
+                background: #0c0c0e;
+                border: 1px solid #252533;
+                border-radius: 14px;
+            }
+            #appTitle {
+                color: #ebebf0;
+                font-size: 28px;
+                font-weight: 750;
+                letter-spacing: 0.2px;
+            }
+            #appVersion {
+                color: #7a7a88;
+                font-size: 13px;
+                padding-top: 2px;
+            }
+            #sectionTitle {
+                color: #f4f4f8;
+                font-size: 14px;
+                font-weight: 700;
+                padding-bottom: 2px;
+            }
+            #status {
+                color: #5c5c6a;
+                background: transparent;
+                border: none;
+                padding: 6px 4px;
+                font-size: 12px;
+            }
+
+            #inputField {
+                background: #0c0c0e;
+                border: 1px solid #2a2a34;
+                border-radius: 10px;
+                padding: 7px 10px;
+                min-height: 34px;
+                selection-background-color: #f97316;
+                selection-color: #ffffff;
+            }
+            #inputField:focus {
+                background-color: #0c0c0e;
+                border: 1px solid #f97316;
+            }
+
+            QComboBox QAbstractItemView, QListView, QAbstractItemView {
+                background: #0c0c0e;
+                color: #ebebf0;
+                border: 1px solid #2a2a34;
+                border-radius: 8px;
+                padding: 4px;
+                selection-background-color: #f97316;
+                selection-color: #ffffff;
+            }
+
+            QAbstractSpinBox::up-button,
+            QAbstractSpinBox::down-button,
+            QComboBox::drop-down {
+                background: #0c0c0e;
+                border: none;
+                width: 18px;
+            }
+            QPushButton {
+                background: #1e1e24;
+                color: #ebebf0;
+                border: none;
+                border-radius: 10px;
+                padding: 8px 14px;
+                min-height: 32px;
+                font-weight: 600;
+            }
+            QPushButton:hover { background: #2a2a34; }
+            QPushButton:pressed { background: #23232c; }
+            QPushButton#primary { background: #f97316; color: white; font-weight: 700; }
+            QPushButton#primary:hover { background: #c2410c; }
+            QPushButton#primary:pressed { background: #9a3412; }
+
+            QTabWidget::pane { border: none; }
+            QTabBar::tab {
+                background: #1e1e24;
+                color: #ebebf0;
+                padding: 8px 16px;
+                border-radius: 10px;
+                margin-right: 6px;
+                min-width: 90px;
+                font-weight: 600;
+            }
+            QTabBar::tab:selected { background: #f97316; color: white; }
+            QTabBar::tab:hover:!selected { background: #272731; }
+
+            QListWidget::item:selected {
+                background: #f97316;
+                color: #ffffff;
+                border-radius: 8px;
+            }
+            QListWidget::item:hover {
+                background: #c2410c;
+                color: #ffffff;
+                border-radius: 8px;
+            }
+
+            QListWidget::item {
+                padding: 7px 8px;
+                margin: 2px 0;
+            }
+
+            QScrollBar:vertical {
+                background: #121218;
+                width: 11px;
+                margin: 2px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:vertical {
+                background: #2a2a34;
+                min-height: 24px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #3b3b49;
+            }
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
+                height: 0;
+            }
+
+            QSlider#timeline::groove:horizontal {
+                background: #2a2a34;
+                height: 6px;
+                border-radius: 3px;
+            }
+            QSlider#timeline::sub-page:horizontal {
+                background: #f97316;
+                border-radius: 3px;
+            }
+            QSlider#timeline::add-page:horizontal {
+                background: #2a2a34;
+                border-radius: 3px;
+            }
+            QSlider#timeline::handle:horizontal {
+                background: #f97316;
+                border: 1px solid #c2410c;
+                width: 14px;
+                margin: -5px 0;
+                border-radius: 7px;
+            }
+            """
+        )
+
+    def _current_lang_code(self) -> str:
+        code = self.lang_combo.currentData()
+        return str(code) if code else "en-us"
+
+    def _refresh_preset_names(self) -> None:
+        names = [self._t(f"preset_{k}") for k in self._preset_keys]
+        current = names[0] if names else ""
+        self.preset_combo.blockSignals(True)
+        self.preset_combo.clear()
+        self.preset_combo.addItems(names)
+        self.preset_combo.setCurrentText(current)
+        self.preset_combo.blockSignals(False)
+
+    def _init_engine(self) -> None:
+        self._load_voices()
+        self._set_status(self._t("up_to_date", version=APP_VERSION))
+
+    def _load_voices(self) -> None:
+        self._set_status(self._t("loading_model"))
+        QApplication.processEvents()
+        try:
+            _, voices = ensure_engine()
+        except Exception as exc:
+            self._set_status(f"Error: {exc}")
+            QMessageBox.critical(self, "Kokoro TTS", str(exc))
+            return
+
+        filtered = voices_for_lang(self._current_lang_code(), voices, self.show_all_chk.isChecked())
+        self._voices = filtered
+        self.voice_combo.clear()
+        self.voice_combo.addItems(filtered)
+        if "af_heart" in filtered:
+            self.voice_combo.setCurrentText("af_heart")
+        self._set_status(self._t("up_to_date", version=APP_VERSION))
+
+    def _on_lang_change(self, _=None) -> None:
+        try:
+            _, voices = ensure_engine()
+        except Exception:
+            return
+        filtered = voices_for_lang(self._current_lang_code(), voices, self.show_all_chk.isChecked())
+        current = self.voice_combo.currentText()
+        self.voice_combo.clear()
+        self.voice_combo.addItems(filtered)
+        if current in filtered:
+            self.voice_combo.setCurrentText(current)
+
+    def _on_show_all(self, _=None) -> None:
+        settings = load_settings()
+        settings["show_all_voices"] = self.show_all_chk.isChecked()
+        save_settings(settings)
+        self._on_lang_change()
+
+    def _on_fav_select(self, value: str) -> None:
+        if value and value != "—":
+            self.voice_combo.setCurrentText(value)
+
+    def _on_toggle_fav(self) -> None:
+        voice = self.voice_combo.currentText().strip()
+        if not voice or voice == "…":
+            return
+        favs, status = toggle_favorite(voice)
+        self.fav_combo.clear()
+        self.fav_combo.addItems(favs if favs else ["—"])
+        if favs:
+            self.fav_combo.setCurrentText(favs[0])
+        self._set_status(status)
+
+    def _on_preset(self, display_name: str) -> None:
+        names = [self._t(f"preset_{k}") for k in self._preset_keys]
+        idx = names.index(display_name) if display_name in names else 0
+        style, speed, gain = apply_preset(self._preset_keys[idx])
+        self.style_combo.setCurrentText(style)
+        self.speed_spin.setValue(speed)
+        self.gain_spin.setValue(gain)
+
+    def _on_generate(self) -> None:
+        text = self.text_input.toPlainText().strip()
+        if not text:
+            self._set_status(self._t("error_empty_text"))
+            return
+
+        if not self._voices:
+            self._load_voices()
+            if not self._voices:
+                return
+
+        voice = self.voice_combo.currentText().strip()
+        if not voice:
+            self._set_status(self._t("error_empty_text"))
+            return
+
+        self.generate_btn.setEnabled(False)
+        self.generate_btn.setText(self._t("generate") + "…")
+        self._set_status("Generating…")
+        QApplication.processEvents()
+
+        try:
+            out_path, info = synthesize(
+                text=text,
+                voice=voice,
+                speed=self.speed_spin.value(),
+                lang=self._current_lang_code(),
+                style=self.style_combo.currentText(),
+                gain_db=self.gain_spin.value(),
+                output_format=self.format_combo.currentText(),
+            )
+        except Exception as exc:
+            self._set_status(str(exc))
+            QMessageBox.critical(self, "Kokoro TTS", str(exc))
+            self.generate_btn.setEnabled(True)
+            self.generate_btn.setText(self._t("generate"))
+            return
+
+        clean = " ".join(text.split())
+        snippet = clean[:30] + ("…" if len(clean) > 30 else "")
+        ts = datetime.now().strftime("%H:%M")
+        label = f"{snippet}  ({ts})"
+        self._history.insert(0, (label, out_path))
+        self._selected_history = 0
+        self._refresh_history()
+        self.player.load_file(out_path)
+        self.player._play(0.0)
+
+        self._set_status(info)
+        self.generate_btn.setEnabled(True)
+        self.generate_btn.setText(self._t("generate"))
+
+    def _refresh_history(self) -> None:
+        self.history_list.clear()
+        for i, (label, _) in enumerate(self._history[:10]):
+            item = QListWidgetItem(label)
+            self.history_list.addItem(item)
+        if self._history:
+            self.history_list.setCurrentRow(min(self._selected_history, self.history_list.count() - 1))
+
+    def _on_history_select(self, item: QListWidgetItem) -> None:
+        row = self.history_list.row(item)
+        if row < 0 or row >= len(self._history):
+            return
+        self._selected_history = row
+        _, path = self._history[row]
+        self.player.load_file(path)
+        self.player._play(0.0)
+        self._refresh_history()
+
+    def _on_save(self) -> None:
+        if not self._history:
+            return
+        _, path = self._history[self._selected_history]
+        src = Path(path)
+        if not src.exists():
+            return
+        dest, _ = QFileDialog.getSaveFileName(
+            self,
+            self._t("download"),
+            str(src),
+            "Audio (*.wav *.mp3);;All files (*.*)",
+        )
+        if dest:
+            shutil.copy2(src, dest)
+            self._set_status(f"Saved → {Path(dest).name}")
+
+    def _on_uilang(self, value: str) -> None:
+        code = "nb" if value == "Norsk" else "en"
+        settings = load_settings()
+        settings["ui_language"] = code
+        save_settings(settings)
+        self._L = code
+        self._set_status(self._t("language_saved"))
+
+    def _on_model(self, value: str) -> None:
+        version = value.replace("Kokoro ", "")
+        settings = load_settings()
+        settings["model_version"] = version
+        save_settings(settings)
+        self.model_info.setText("Loading…")
+
+        try:
+            _, voices = ensure_engine(version)
+            filtered = voices_for_lang(self._current_lang_code(), voices, self.show_all_chk.isChecked())
+            self.voice_combo.clear()
+            self.voice_combo.addItems(filtered)
+            self.model_info.setText(self._t("model_switched", version=version))
+        except Exception as exc:
+            self.model_info.setText(self._t("model_switch_error", error=str(exc)))
+
+    def _on_check_update(self) -> None:
+        self.update_label.setText("…")
+        QApplication.processEvents()
+        self.update_label.setText(check_updates_message())
+
+    def _on_auto_update(self) -> None:
+        self.update_label.setText("…")
+        QApplication.processEvents()
+        self.update_label.setText(auto_update())
+
+    def closeEvent(self, event) -> None:
+        self.player.stop()
+        super().closeEvent(event)
+
+def main() -> None:
+    app = QApplication(sys.argv)
+    app.setStyle("Fusion")
+    window = KokoroQtWindow()
+    window.show()
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()
