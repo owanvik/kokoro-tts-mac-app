@@ -1,51 +1,28 @@
-# Kokoro TTS (macOS app)
+# KokoroTTS for macOS
 
-Lokal Kokoro TTS med WebUI + stemmevalg + style presets.
+Dette repoet er primært for **nedlasting av ferdig app**.
 
-## Kjør lokalt (dev)
+## Last ned
 
-```bash
-cd tools/kokoro-webui
-./run.sh
-```
+Gå til **Releases** og last ned:
+- `KokoroTTS-mac-arm64.dmg`
 
-Åpne: http://127.0.0.1:7861
+Direkte:
+- https://github.com/owanvik/kokoro-tts-mac-app/releases/latest
 
-## Bygg macOS-app (.app)
+## Installer
 
-```bash
-cd tools/kokoro-webui
-chmod +x build-mac-app.sh
-./build-mac-app.sh
-```
+1. Åpne `.dmg`
+2. Dra `KokoroTTS.app` til `Applications`
+3. Åpne appen
 
-Resultat:
-- `tools/kokoro-webui/dist/KokoroTTS.app`
-
-## Bygg enkel installasjon (.dmg)
-
-```bash
-cd tools/kokoro-webui
-chmod +x make-dmg.sh
-./make-dmg.sh
-```
-
-Resultat:
-- `tools/kokoro-webui/dist/KokoroTTS-mac-arm64.dmg`
-
-## Dele med kollega (enkelest)
-
-1. Del `.dmg`-filen
-2. Mottaker åpner DMG
-3. Dra `KokoroTTS.app` til `Applications`
-4. Åpne appen
-
-Første oppstart kan bruke litt tid (modellfiler lastes ned ved behov og lagres i `~/Library/Application Support/KokoroTTS/models`).
-
-Hvis macOS blokkerer appen første gang:
+Hvis macOS blokkerer første gang:
 - Høyreklikk appen → **Open**
-- Eller gå til **System Settings → Privacy & Security → Open Anyway**
+- Eller **System Settings → Privacy & Security → Open Anyway**
 
-## Notat om språk
+## Bruk
 
-- Norsk: bruk `nb` (eller `no`, som mappes automatisk til `nb`).
+Appen åpner nettsiden automatisk. Hvis ikke:
+- http://127.0.0.1:7861
+
+Første oppstart kan ta litt tid fordi modellfiler lastes ned automatisk.
