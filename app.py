@@ -27,6 +27,7 @@ else:
 MODELS_DIR = APP_DIR / "models"
 OUT_DIR = APP_DIR / "exports"
 TMP_DIR = APP_DIR / "tmp"
+CERTS_DIR = APP_DIR / "certs"
 
 # ── Model registry ──────────────────────────────────────────────────
 # Each version maps to mirror URL (our repo) + fallback (upstream).
@@ -67,7 +68,7 @@ FAVORITES_FILE = APP_DIR / "favorites.json"
 SETTINGS_FILE = APP_DIR / "settings.json"
 LOCALES_DIR = BASE_DIR / "locales"
 
-for d in [MODELS_DIR, OUT_DIR, TMP_DIR]:
+for d in [MODELS_DIR, OUT_DIR, TMP_DIR, CERTS_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
 # Migrate old flat model files into versioned subfolder
@@ -658,10 +659,39 @@ def build_ui() -> gr.Blocks:
     return demo
 
 
+def _ensure_ssl() -> tuple[str, str] | None:
+    """Generate a self-signed cert for localhost on first run, trust it in macOS keychain."""
+    cert_file = CERTS_DIR / "localhost.pem"
+    key_file = CERTS_DIR / "localhost-key.pem"
+    if cert_file.exists() and key_file.exists():
+        return str(cert_file), str(key_file)
+    try:
+        subprocess.run([
+            "openssl", "req", "-x509", "-newkey", "rsa:2048",
+            "-keyout", str(key_file), "-out", str(cert_file),
+            "-days", "3650", "-nodes",
+            "-subj", "/CN=localhost",
+            "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1",
+        ], check=True, capture_output=True)
+        # Trust the cert in macOS keychain (may prompt for password)
+        subprocess.run([
+            "security", "add-trusted-cert", "-p", "ssl",
+            "-k", str(Path.home() / "Library/Keychains/login.keychain-db"),
+            str(cert_file),
+        ], capture_output=True)
+        return str(cert_file), str(key_file)
+    except Exception:
+        return None
+
+
 if __name__ == "__main__":
     ui = build_ui()
-    ui.launch(
+    ssl = _ensure_ssl()
+    launch_kwargs = dict(
         server_name="0.0.0.0",
         server_port=7861,
         allowed_paths=[str(TMP_DIR), str(OUT_DIR), str(BASE_DIR)],
     )
+    if ssl:
+        launch_kwargs["ssl_certfile"], launch_kwargs["ssl_keyfile"] = ssl
+    ui.launch(**launch_kwargs)
