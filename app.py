@@ -533,7 +533,14 @@ def build_ui() -> gr.Blocks:
         lang.change(fn=_update_voices, inputs=[lang, show_all_voices], outputs=[voice])
         show_all_voices.change(fn=_update_voices, inputs=[lang, show_all_voices], outputs=[voice])
 
+        def _play_selected(history, evt: gr.SelectData):
+            idx = evt.index
+            if history and 0 <= idx < len(history):
+                return history[idx]
+            return None
+
         btn.click(fn=synthesize, inputs=[text, voice, speed, lang, style, gain_db, output_format, file_history], outputs=[audio, file_history, download, info])
+        download.select(fn=_play_selected, inputs=[file_history], outputs=[audio])
         check_update_btn.click(fn=check_updates_message, outputs=[update_status])
         auto_update_btn.click(fn=auto_update, outputs=[update_status])
         save_language_btn.click(fn=save_ui_language, inputs=[ui_language], outputs=[lang_info])
