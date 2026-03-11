@@ -10,6 +10,15 @@ pyinstaller \
   --windowed \
   --name "KokoroTTS" \
   --add-data "app.py:." \
+  --collect-data safehttpx \
+  --collect-data groovy \
+  --collect-all kokoro_onnx \
+  --collect-all phonemizer \
+  --collect-all segments \
+  --collect-all csvw \
+  --collect-all language_tags \
+  --collect-all espeakng_loader \
+  --collect-all gradio \
   launcher.py
 
 echo "Built app: $(pwd)/dist/KokoroTTS.app"
