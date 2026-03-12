@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import queue
 import threading
 import sys
 import shutil
@@ -78,6 +79,40 @@ class NoWheelDoubleSpinBox(QDoubleSpinBox):
 class NoWheelSlider(QSlider):
     def wheelEvent(self, event) -> None:
         event.ignore()
+
+
+class ToggleSwitch(QCheckBox):
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setText("")
+        self.setFixedSize(46, 26)
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        rect = self.rect().adjusted(1, 1, -1, -1)
+        track_color = QColor("#f97316") if self.isChecked() else QColor("#1e1e24")
+        border_color = QColor("#c2410c") if self.isChecked() else QColor("#2a2a34")
+        knob_color = QColor("#ffffff") if self.isChecked() else QColor("#8f8f9e")
+
+        painter.setPen(QPen(border_color, 1))
+        painter.setBrush(track_color)
+        painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
+
+        knob_d = rect.height() - 6
+        knob_y = rect.y() + (rect.height() - knob_d) / 2
+        knob_x = rect.right() - knob_d - 2 if self.isChecked() else rect.x() + 2
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(knob_color)
+        painter.drawEllipse(int(knob_x), int(knob_y), int(knob_d), int(knob_d))
+
+        if self.hasFocus():
+            focus_rect = self.rect().adjusted(0, 0, -1, -1)
+            painter.setPen(QPen(QColor("#f97316"), 1, Qt.DashLine))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRoundedRect(focus_rect, focus_rect.height() / 2, focus_rect.height() / 2)
 
 
 class AudioPlayerWidget(QWidget):
@@ -429,7 +464,7 @@ class KokoroQtWindow(QMainWindow):
 
         content = QWidget()
         content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setContentsMargins(0, 0, 10, 0)
         content_layout.setSpacing(8)
 
         self._build_settings_content(content_layout)
@@ -495,7 +530,7 @@ class KokoroQtWindow(QMainWindow):
 
         content = QWidget()
         content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setContentsMargins(0, 0, 10, 0)
         content_layout.setSpacing(8)
 
         text_card, text_layout = self._card(self._t("text"))
@@ -714,8 +749,7 @@ class KokoroQtWindow(QMainWindow):
         show_all_row.setSpacing(8)
         show_all_label = QLabel(self._t("show_all_voices"))
         show_all_label.setWordWrap(True)
-        self.show_all_chk = QCheckBox()
-        self.show_all_chk.setObjectName("toggleSwitch")
+        self.show_all_chk = ToggleSwitch()
         self.show_all_chk.setChecked(bool(load_settings().get("show_all_voices", False)))
         self.show_all_chk.stateChanged.connect(self._on_show_all)
         show_all_row.addWidget(show_all_label, 1)
@@ -1207,9 +1241,19 @@ class KokoroQtWindow(QMainWindow):
             except Exception as exc:
                 out_path, info = "", ""
                 error = str(exc)
-            QTimer.singleShot(0, lambda: self._finish_generate(args["text"], out_path, info, error))
+            self._generate_result_queue.put((args["text"], out_path, info, error))
 
+        self._generate_result_queue = queue.Queue(maxsize=1)
         threading.Thread(target=_worker, daemon=True).start()
+        self._poll_generate_result()
+
+    def _poll_generate_result(self) -> None:
+        try:
+            text, out_path, info, error = self._generate_result_queue.get_nowait()
+        except queue.Empty:
+            QTimer.singleShot(80, self._poll_generate_result)
+            return
+        self._finish_generate(text, out_path, info, error)
 
     def _set_generate_loading(self, loading: bool) -> None:
         if loading:
@@ -1331,9 +1375,19 @@ class KokoroQtWindow(QMainWindow):
                 msg = auto_update()
             except Exception as exc:
                 msg = str(exc)
-            QTimer.singleShot(0, lambda m=msg: self._finish_auto_update(m))
+            self._update_result_queue.put(msg)
 
+        self._update_result_queue = queue.Queue(maxsize=1)
         threading.Thread(target=_worker, daemon=True).start()
+        self._poll_auto_update_result()
+
+    def _poll_auto_update_result(self) -> None:
+        try:
+            message = self._update_result_queue.get_nowait()
+        except queue.Empty:
+            QTimer.singleShot(120, self._poll_auto_update_result)
+            return
+        self._finish_auto_update(message)
 
     def _finish_auto_update(self, message: str) -> None:
         if hasattr(self, "_update_progress") and self._update_progress is not None:

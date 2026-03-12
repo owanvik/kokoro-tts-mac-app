@@ -40,7 +40,7 @@
   "download_failed": "Download failed: {error}",
   "update_downloaded": "New version {tag} downloaded. Installation window is opening. Drag the app to Applications to complete.",
   "update_restarting": "Installing {tag} — the app will restart automatically…",
-  "update_dev_mode": "Running in dev mode. Opening release page: {url}",
+  "update_dev_mode": "Running in dev mode. Automatic installation is disabled.",
   "update_mount_failed": "Could not mount the update image: {error}",
   "update_no_app_in_dmg": "No app found in the downloaded update. Try updating manually.",
   "fav_removed": "Removed favorite: {voice}",

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -222,23 +223,25 @@ def auto_update() -> str:
         return tr("dmg_not_found", tag=latest_tag, url=latest_url)
     current_app = _get_app_bundle_path()
     if current_app is None:
-        import webbrowser
-        webbrowser.open(latest_url)
-        return tr("update_dev_mode", url=latest_url)
+        return tr("update_dev_mode")
 
     tmp_dir = tempfile.mkdtemp(prefix="kokoro-update-")
     dmg_path = Path(tmp_dir) / "update.dmg"
     mount_point = Path(tmp_dir) / "mount"
     mount_point.mkdir()
     try:
-        urllib.request.urlretrieve(dmg_url, dmg_path)
+        req = urllib.request.Request(dmg_url, headers={"User-Agent": "KokoroTTS"})
+        with urllib.request.urlopen(req, timeout=30) as resp, open(dmg_path, "wb") as out_f:
+            shutil.copyfileobj(resp, out_f)
     except Exception as e:
         return tr("download_failed", error=str(e))
     try:
         subprocess.run(
             ["hdiutil", "attach", str(dmg_path), "-mountpoint", str(mount_point), "-nobrowse", "-quiet"],
-            check=True, capture_output=True,
+            check=True, capture_output=True, timeout=30,
         )
+    except subprocess.TimeoutExpired:
+        return tr("update_mount_failed", error="timeout")
     except subprocess.CalledProcessError as e:
         return tr("update_mount_failed", error=e.stderr.decode(errors="replace").strip())
 
@@ -248,7 +251,7 @@ def auto_update() -> str:
             new_app = item
             break
     if new_app is None:
-        subprocess.run(["hdiutil", "detach", str(mount_point), "-quiet"], capture_output=True)
+        subprocess.run(["hdiutil", "detach", str(mount_point), "-quiet"], capture_output=True, timeout=20)
         return tr("update_no_app_in_dmg")
 
     install_dest = current_app.parent

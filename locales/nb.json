@@ -40,7 +40,7 @@
   "download_failed": "Nedlasting feilet: {error}",
   "update_downloaded": "Ny versjon {tag} lastet ned. Installasjonsvindu åpnes. Dra appen til Applications for å fullføre.",
   "update_restarting": "Installerer {tag} — appen starter på nytt automatisk…",
-  "update_dev_mode": "Kjører i utviklermodus. Åpner release-siden: {url}",
+  "update_dev_mode": "Kjører i utviklermodus. Automatisk installasjon er deaktivert.",
   "update_mount_failed": "Kunne ikke montere oppdateringsbildet: {error}",
   "update_no_app_in_dmg": "Fant ingen app i den nedlastede oppdateringen. Prøv å oppdatere manuelt.",
   "fav_removed": "Fjernet favoritt: {voice}",
