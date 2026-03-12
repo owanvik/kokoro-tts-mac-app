@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import math
 import sys
 import shutil
 import time
@@ -10,7 +11,7 @@ from pathlib import Path
 import numpy as np
 import sounddevice as sd
 import soundfile as sf
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -26,7 +27,9 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QToolButton,
     QSlider,
+    QStackedWidget,
     QTabWidget,
     QScrollArea,
     QSizePolicy,
@@ -39,6 +42,7 @@ from core import (
     APP_DISPLAY_VERSION,
     APP_VERSION,
     BASE_DIR,
+    DEFAULT_MODEL_VERSION,
     LANGUAGE_CHOICES,
     MODEL_REGISTRY,
     STYLES,
@@ -56,6 +60,21 @@ from core import (
     tr,
     voices_for_lang,
 )
+
+
+class NoWheelComboBox(QComboBox):
+    def wheelEvent(self, event) -> None:
+        event.ignore()
+
+
+class NoWheelDoubleSpinBox(QDoubleSpinBox):
+    def wheelEvent(self, event) -> None:
+        event.ignore()
+
+
+class NoWheelSlider(QSlider):
+    def wheelEvent(self, event) -> None:
+        event.ignore()
 
 
 class AudioPlayerWidget(QWidget):
@@ -77,7 +96,7 @@ class AudioPlayerWidget(QWidget):
         self.waveform = WaveformWidget()
         layout.addWidget(self.waveform)
 
-        self.position_slider = QSlider(Qt.Horizontal)
+        self.position_slider = NoWheelSlider(Qt.Horizontal)
         self.position_slider.setObjectName("timeline")
         self.position_slider.setRange(0, 1000)
         self.position_slider.setValue(0)
@@ -320,7 +339,8 @@ class KokoroQtWindow(QMainWindow):
         self._lang_display_to_code = {name: code for name, code in LANGUAGE_CHOICES}
         self._preset_keys = ["neutral", "alert", "narration", "direct"]
 
-        self._status = QLabel(self._t("loading_model"))
+        self._status_text = self._t("loading_model")
+        self._status_labels: list[QLabel] = []
 
         self._build_ui()
         self._configure_tab_navigation()
@@ -331,7 +351,9 @@ class KokoroQtWindow(QMainWindow):
         return tr(key, self._L, **kw)
 
     def _set_status(self, msg: str) -> None:
-        self._status.setText(msg)
+        self._status_text = msg
+        for label in self._status_labels:
+            label.setText(msg)
 
     def _card(self, title: str) -> tuple[QWidget, QVBoxLayout]:
         card = QWidget()
@@ -347,8 +369,57 @@ class KokoroQtWindow(QMainWindow):
     def _build_ui(self) -> None:
         root = QWidget()
         root_layout = QVBoxLayout(root)
-        root_layout.setContentsMargins(12, 10, 12, 12)
+        root_layout.setContentsMargins(12, 10, 0, 12)
         root_layout.setSpacing(8)
+
+        root_layout.addWidget(self._build_top_section())
+
+        self.pages = QStackedWidget()
+        self.main_page = self._build_generate_tab()
+        self.settings_page = self._build_settings_page()
+        self.pages.addWidget(self.main_page)
+        self.pages.addWidget(self.settings_page)
+        root_layout.addWidget(self.pages, 1)
+
+        status = QLabel(self._status_text)
+        status.setWordWrap(True)
+        status.setObjectName("status")
+        self._status_labels.append(status)
+        root_layout.addWidget(status)
+
+        self.setCentralWidget(root)
+
+    def _build_settings_page(self) -> QWidget:
+        page = QWidget()
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(8)
+
+        self._build_settings_content(content_layout)
+
+        self.back_to_main_btn = QPushButton("← " + self._t("back"))
+        self.back_to_main_btn.setMinimumHeight(34)
+        self.back_to_main_btn.clicked.connect(self._show_main_page)
+        content_layout.addWidget(self.back_to_main_btn)
+
+        content_layout.addStretch(1)
+        scroll.setWidget(content)
+        page_layout.addWidget(scroll)
+        return page
+
+    def _build_top_section(self) -> QWidget:
+        wrapper = QWidget()
+        wrapper_layout = QVBoxLayout(wrapper)
+        wrapper_layout.setContentsMargins(0, 0, 0, 0)
+        wrapper_layout.setSpacing(0)
 
         header_row = QHBoxLayout()
         logo = self._build_logo_label()
@@ -361,18 +432,8 @@ class KokoroQtWindow(QMainWindow):
         header_row.addWidget(title)
         header_row.addWidget(version)
         header_row.addStretch(1)
-        root_layout.addLayout(header_row)
-
-        self.tabs = QTabWidget()
-        self.tabs.addTab(self._build_generate_tab(), self._t("tab_generate"))
-        self.tabs.addTab(self._build_settings_tab(), self._t("tab_settings"))
-        root_layout.addWidget(self.tabs, 1)
-
-        self._status.setWordWrap(True)
-        self._status.setObjectName("status")
-        root_layout.addWidget(self._status)
-
-        self.setCentralWidget(root)
+        wrapper_layout.addLayout(header_row)
+        return wrapper
 
     def _build_logo_label(self) -> QLabel | None:
         candidates = [
@@ -399,6 +460,7 @@ class KokoroQtWindow(QMainWindow):
         tab_layout.setContentsMargins(0, 0, 0, 0)
 
         scroll = QScrollArea()
+        self._generate_scroll = scroll
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
@@ -410,10 +472,22 @@ class KokoroQtWindow(QMainWindow):
         text_card, text_layout = self._card(self._t("text"))
         self.text_input = QTextEdit()
         self.text_input.setObjectName("inputField")
-        self.text_input.setMinimumHeight(110)
+        self._text_inner_padding = 6
+        self.text_input.document().setDocumentMargin(0)
+        self.text_input.setViewportMargins(
+            self._text_inner_padding,
+            self._text_inner_padding,
+            self._text_inner_padding,
+            self._text_inner_padding,
+        )
+        self._text_min_height = 150
+        self._text_current_height = self._text_min_height
+        self.text_input.setMinimumHeight(self._text_min_height)
         self.text_input.setTabChangesFocus(True)
+        self.text_input.document().documentLayout().documentSizeChanged.connect(self._on_text_document_size_changed)
         self.text_input.viewport().setStyleSheet("background-color: #0c0c0e;")
         text_layout.addWidget(self.text_input)
+        self._resize_text_input()
         content_layout.addWidget(text_card)
 
         voice_card, voice_layout = self._card(self._t("voice_group"))
@@ -423,10 +497,10 @@ class KokoroQtWindow(QMainWindow):
         voice_grid.setColumnStretch(0, 3)
         voice_grid.setColumnStretch(1, 2)
 
-        self.voice_combo = QComboBox()
+        self.voice_combo = NoWheelComboBox()
         self.voice_combo.setObjectName("inputField")
         self.voice_combo.addItem("…")
-        self.fav_combo = QComboBox()
+        self.fav_combo = NoWheelComboBox()
         self.fav_combo.setObjectName("inputField")
         favs = load_favorites()
         self.fav_combo.addItems(favs if favs else ["—"])
@@ -443,39 +517,57 @@ class KokoroQtWindow(QMainWindow):
         voice_layout.addLayout(voice_grid)
         content_layout.addWidget(voice_card)
 
-        audio_card, audio_layout = self._card(self._t("audio_settings"))
+        audio_card = QWidget()
+        audio_card.setObjectName("card")
+        audio_layout = QVBoxLayout(audio_card)
+        audio_layout.setContentsMargins(12, 10, 12, 10)
+        audio_layout.setSpacing(8)
+
+        self.audio_toggle_btn = QToolButton()
+        self.audio_toggle_btn.setObjectName("sectionToggle")
+        self.audio_toggle_btn.setText(self._t("audio_settings"))
+        self.audio_toggle_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.audio_toggle_btn.setArrowType(Qt.RightArrow)
+        self.audio_toggle_btn.setCheckable(True)
+        audio_layout.addWidget(self.audio_toggle_btn)
+
+        self.audio_settings_body = QWidget()
+        audio_body_layout = QVBoxLayout(self.audio_settings_body)
+        audio_body_layout.setContentsMargins(0, 0, 0, 0)
+        audio_body_layout.setSpacing(0)
+
         audio_grid = QGridLayout()
         audio_grid.setHorizontalSpacing(8)
         audio_grid.setVerticalSpacing(6)
 
-        self.lang_combo = QComboBox()
+        self.lang_combo = NoWheelComboBox()
         self.lang_combo.setObjectName("inputField")
         for name, code in LANGUAGE_CHOICES:
             self.lang_combo.addItem(name, code)
         self.lang_combo.currentTextChanged.connect(self._on_lang_change)
 
-        self.style_combo = QComboBox()
+        self.style_combo = NoWheelComboBox()
         self.style_combo.setObjectName("inputField")
         self.style_combo.addItems(STYLES)
 
-        self.preset_combo = QComboBox()
+        self.preset_combo = NoWheelComboBox()
         self.preset_combo.setObjectName("inputField")
         self._refresh_preset_names()
         self.preset_combo.currentTextChanged.connect(self._on_preset)
 
-        self.speed_spin = QDoubleSpinBox()
+        self.speed_spin = NoWheelDoubleSpinBox()
         self.speed_spin.setObjectName("inputField")
         self.speed_spin.setRange(0.5, 2.0)
         self.speed_spin.setSingleStep(0.05)
         self.speed_spin.setValue(1.0)
 
-        self.gain_spin = QDoubleSpinBox()
+        self.gain_spin = NoWheelDoubleSpinBox()
         self.gain_spin.setObjectName("inputField")
         self.gain_spin.setRange(-12.0, 12.0)
         self.gain_spin.setSingleStep(0.5)
         self.gain_spin.setValue(0.0)
 
-        self.format_combo = QComboBox()
+        self.format_combo = NoWheelComboBox()
         self.format_combo.setObjectName("inputField")
         self.format_combo.addItems(["wav", "mp3"])
 
@@ -493,7 +585,34 @@ class KokoroQtWindow(QMainWindow):
         audio_grid.addWidget(self.gain_spin, 3, 1)
         audio_grid.addWidget(self.format_combo, 3, 2)
 
-        audio_layout.addLayout(audio_grid)
+        audio_body_layout.addLayout(audio_grid)
+
+        audio_actions = QHBoxLayout()
+        audio_actions.addStretch(1)
+        self.restore_audio_defaults_btn = QPushButton("↺")
+        self.restore_audio_defaults_btn.setObjectName("secondary")
+        self.restore_audio_defaults_btn.setToolTip(self._t("restore_audio_defaults"))
+        self.restore_audio_defaults_btn.setMinimumHeight(30)
+        self.restore_audio_defaults_btn.setFixedWidth(38)
+        self.restore_audio_defaults_btn.clicked.connect(self._on_restore_audio_defaults)
+        audio_actions.addWidget(self.restore_audio_defaults_btn)
+        audio_body_layout.addLayout(audio_actions)
+
+        settings = load_settings()
+        audio_open = bool(settings.get("audio_settings_open", False))
+        self.audio_settings_body.setVisible(audio_open)
+        self.audio_toggle_btn.setChecked(audio_open)
+        self.audio_toggle_btn.setArrowType(Qt.DownArrow if audio_open else Qt.RightArrow)
+        audio_layout.addWidget(self.audio_settings_body)
+
+        def _toggle_audio_settings(opened: bool) -> None:
+            self.audio_settings_body.setVisible(opened)
+            self.audio_toggle_btn.setArrowType(Qt.DownArrow if opened else Qt.RightArrow)
+            cfg = load_settings()
+            cfg["audio_settings_open"] = bool(opened)
+            save_settings(cfg)
+
+        self.audio_toggle_btn.toggled.connect(_toggle_audio_settings)
         content_layout.addWidget(audio_card)
 
         self.generate_btn = QPushButton(self._t("generate"))
@@ -521,33 +640,114 @@ class KokoroQtWindow(QMainWindow):
         history_layout.addWidget(self.save_btn)
         content_layout.addWidget(history_card)
 
+        self.open_settings_btn = QPushButton("⚙  " + self._t("tab_settings"))
+        self.open_settings_btn.setMinimumHeight(36)
+        self.open_settings_btn.clicked.connect(self._show_settings_page)
+        content_layout.addWidget(self.open_settings_btn)
+
         content_layout.addStretch(1)
         scroll.setWidget(content)
         tab_layout.addWidget(scroll)
         return tab
 
+    def _build_settings_content(self, content_layout: QVBoxLayout) -> None:
+        lang_card, lang_layout = self._card(self._t("ui_language"))
+        self.ui_lang_combo = NoWheelComboBox()
+        self.ui_lang_combo.setObjectName("inputField")
+        self.ui_lang_combo.addItems(["Norsk", "English"])
+        self.ui_lang_combo.setCurrentText("Norsk" if self._L == "nb" else "English")
+        self.ui_lang_combo.currentTextChanged.connect(self._on_uilang)
+        lang_layout.addWidget(self.ui_lang_combo)
+
+        self.restore_defaults_btn = QPushButton("↺")
+        self.restore_defaults_btn.setObjectName("secondary")
+        self.restore_defaults_btn.setToolTip(self._t("restore_defaults"))
+        self.restore_defaults_btn.setMinimumHeight(34)
+        self.restore_defaults_btn.setFixedWidth(42)
+        self.restore_defaults_btn.clicked.connect(self._on_restore_defaults)
+        lang_layout.addWidget(self.restore_defaults_btn)
+        content_layout.addWidget(lang_card)
+
+        voice_card, voice_layout = self._card(self._t("voice_settings"))
+        show_all_row = QHBoxLayout()
+        show_all_row.setContentsMargins(0, 0, 0, 0)
+        show_all_row.setSpacing(8)
+        show_all_label = QLabel(self._t("show_all_voices"))
+        show_all_label.setWordWrap(True)
+        self.show_all_chk = QCheckBox()
+        self.show_all_chk.setObjectName("toggleSwitch")
+        self.show_all_chk.setChecked(bool(load_settings().get("show_all_voices", False)))
+        self.show_all_chk.stateChanged.connect(self._on_show_all)
+        show_all_row.addWidget(show_all_label, 1)
+        show_all_row.addWidget(self.show_all_chk, 0, Qt.AlignRight)
+        voice_layout.addLayout(show_all_row)
+        content_layout.addWidget(voice_card)
+
+        model_card, model_layout = self._card(self._t("model_settings"))
+        self.model_combo = NoWheelComboBox()
+        self.model_combo.setObjectName("inputField")
+        self.model_combo.addItems([f"Kokoro {k}" for k in MODEL_REGISTRY])
+        self.model_combo.setCurrentText(f"Kokoro {get_model_version()}")
+        self.model_combo.currentTextChanged.connect(self._on_model)
+        self.model_info = QLabel("")
+        self.model_info.setWordWrap(True)
+        model_layout.addWidget(self.model_combo)
+        model_layout.addWidget(self.model_info)
+        content_layout.addWidget(model_card)
+
+        update_card, update_layout = self._card(self._t("app_status"))
+        self.update_label = QLabel(APP_DISPLAY_VERSION)
+        self.update_label.setWordWrap(True)
+        update_layout.addWidget(self.update_label)
+        update_row = QHBoxLayout()
+        self.check_update_btn = QPushButton(self._t("check_update"))
+        self.check_update_btn.setMinimumHeight(34)
+        self.check_update_btn.clicked.connect(self._on_check_update)
+        self.auto_update_btn = QPushButton(self._t("update_now"))
+        self.auto_update_btn.setObjectName("primary")
+        self.auto_update_btn.setMinimumHeight(34)
+        self.auto_update_btn.clicked.connect(self._on_auto_update)
+        update_row.addWidget(self.check_update_btn)
+        update_row.addWidget(self.auto_update_btn)
+        update_row.addStretch(1)
+        update_layout.addLayout(update_row)
+        content_layout.addWidget(update_card)
+
     def _configure_tab_navigation(self) -> None:
+        self.voice_combo.setFocusPolicy(Qt.StrongFocus)
+        self.fav_combo.setFocusPolicy(Qt.StrongFocus)
+        self.lang_combo.setFocusPolicy(Qt.StrongFocus)
+        self.style_combo.setFocusPolicy(Qt.StrongFocus)
+        self.preset_combo.setFocusPolicy(Qt.StrongFocus)
+
         QWidget.setTabOrder(self.text_input, self.voice_combo)
         QWidget.setTabOrder(self.voice_combo, self.fav_combo)
         QWidget.setTabOrder(self.fav_combo, self.fav_btn)
-        QWidget.setTabOrder(self.fav_btn, self.lang_combo)
+        QWidget.setTabOrder(self.fav_btn, self.audio_toggle_btn)
+        QWidget.setTabOrder(self.audio_toggle_btn, self.lang_combo)
         QWidget.setTabOrder(self.lang_combo, self.style_combo)
         QWidget.setTabOrder(self.style_combo, self.preset_combo)
         QWidget.setTabOrder(self.preset_combo, self.speed_spin)
         QWidget.setTabOrder(self.speed_spin, self.gain_spin)
         QWidget.setTabOrder(self.gain_spin, self.format_combo)
-        QWidget.setTabOrder(self.format_combo, self.generate_btn)
+        QWidget.setTabOrder(self.format_combo, self.restore_audio_defaults_btn)
+        QWidget.setTabOrder(self.restore_audio_defaults_btn, self.generate_btn)
         QWidget.setTabOrder(self.generate_btn, self.player.position_slider)
         QWidget.setTabOrder(self.player.position_slider, self.player.rewind_btn)
         QWidget.setTabOrder(self.player.rewind_btn, self.player.play_btn)
         QWidget.setTabOrder(self.player.play_btn, self.player.forward_btn)
         QWidget.setTabOrder(self.player.forward_btn, self.history_list)
         QWidget.setTabOrder(self.history_list, self.save_btn)
-        QWidget.setTabOrder(self.save_btn, self.ui_lang_combo)
+        QWidget.setTabOrder(self.save_btn, self.open_settings_btn)
+        QWidget.setTabOrder(self.open_settings_btn, self.text_input)
+
         QWidget.setTabOrder(self.ui_lang_combo, self.show_all_chk)
         QWidget.setTabOrder(self.show_all_chk, self.model_combo)
         QWidget.setTabOrder(self.model_combo, self.check_update_btn)
         QWidget.setTabOrder(self.check_update_btn, self.auto_update_btn)
+        QWidget.setTabOrder(self.auto_update_btn, self.restore_defaults_btn)
+        QWidget.setTabOrder(self.restore_defaults_btn, self.back_to_main_btn)
+        QWidget.setTabOrder(self.back_to_main_btn, self.ui_lang_combo)
 
     def _build_settings_tab(self) -> QWidget:
         tab = QWidget()
@@ -555,6 +755,7 @@ class KokoroQtWindow(QMainWindow):
         tab_layout.setContentsMargins(0, 0, 0, 0)
 
         scroll = QScrollArea()
+        self._settings_scroll = scroll
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         content = QWidget()
@@ -562,13 +763,23 @@ class KokoroQtWindow(QMainWindow):
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(8)
 
+        content_layout.addWidget(self._build_top_section())
+
         lang_card, lang_layout = self._card(self._t("ui_language"))
-        self.ui_lang_combo = QComboBox()
+        self.ui_lang_combo = NoWheelComboBox()
         self.ui_lang_combo.setObjectName("inputField")
         self.ui_lang_combo.addItems(["Norsk", "English"])
         self.ui_lang_combo.setCurrentText("Norsk" if self._L == "nb" else "English")
         self.ui_lang_combo.currentTextChanged.connect(self._on_uilang)
         lang_layout.addWidget(self.ui_lang_combo)
+
+        self.restore_defaults_btn = QPushButton("↺")
+        self.restore_defaults_btn.setObjectName("secondary")
+        self.restore_defaults_btn.setToolTip(self._t("restore_defaults"))
+        self.restore_defaults_btn.setMinimumHeight(34)
+        self.restore_defaults_btn.setFixedWidth(42)
+        self.restore_defaults_btn.clicked.connect(self._on_restore_defaults)
+        lang_layout.addWidget(self.restore_defaults_btn)
         content_layout.addWidget(lang_card)
 
         voice_card, voice_layout = self._card(self._t("voice_settings"))
@@ -579,7 +790,7 @@ class KokoroQtWindow(QMainWindow):
         content_layout.addWidget(voice_card)
 
         model_card, model_layout = self._card(self._t("model_settings"))
-        self.model_combo = QComboBox()
+        self.model_combo = NoWheelComboBox()
         self.model_combo.setObjectName("inputField")
         self.model_combo.addItems([f"Kokoro {k}" for k in MODEL_REGISTRY])
         self.model_combo.setCurrentText(f"Kokoro {get_model_version()}")
@@ -641,6 +852,35 @@ class KokoroQtWindow(QMainWindow):
                 font-weight: 700;
                 padding-bottom: 2px;
             }
+            QToolButton#sectionToggle {
+                color: #f4f4f8;
+                font-size: 14px;
+                font-weight: 700;
+                border: none;
+                padding: 2px 0;
+                text-align: left;
+            }
+            QToolButton#sectionToggle::menu-indicator { image: none; }
+
+            QCheckBox#toggleSwitch {
+                spacing: 0;
+                min-width: 44px;
+                min-height: 24px;
+                max-width: 44px;
+                max-height: 24px;
+            }
+            QCheckBox#toggleSwitch::indicator {
+                width: 44px;
+                height: 24px;
+                border-radius: 12px;
+                border: 1px solid #2a2a34;
+                background: #1e1e24;
+            }
+            QCheckBox#toggleSwitch::indicator:checked {
+                background: #f97316;
+                border: 1px solid #c2410c;
+            }
+
             #status {
                 color: #5c5c6a;
                 background: transparent;
@@ -661,6 +901,10 @@ class KokoroQtWindow(QMainWindow):
             #inputField:focus {
                 background-color: #0c0c0e;
                 border: 1px solid #f97316;
+            }
+
+            QTextEdit#inputField {
+                padding: 0;
             }
 
             QComboBox QAbstractItemView, QListView, QAbstractItemView {
@@ -694,6 +938,14 @@ class KokoroQtWindow(QMainWindow):
             QPushButton#primary { background: #f97316; color: white; font-weight: 700; }
             QPushButton#primary:hover { background: #c2410c; }
             QPushButton#primary:pressed { background: #9a3412; }
+            QPushButton#secondary {
+                background: #1e1e24;
+                border: 1px solid #2a2a34;
+                padding: 0;
+                font-size: 18px;
+                font-weight: 700;
+            }
+            QPushButton#secondary:hover { border: 1px solid #f97316; }
 
             QTabWidget::pane { border: none; }
             QTabBar::tab {
@@ -724,16 +976,22 @@ class KokoroQtWindow(QMainWindow):
                 margin: 2px 0;
             }
 
+            QScrollArea {
+                border: none;
+                margin: 0;
+                padding: 0;
+            }
+
             QScrollBar:vertical {
                 background: #121218;
-                width: 11px;
-                margin: 2px;
-                border-radius: 5px;
+                width: 6px;
+                margin: 3px 0px 3px 0px;
+                border-radius: 3px;
             }
             QScrollBar::handle:vertical {
                 background: #2a2a34;
                 min-height: 24px;
-                border-radius: 5px;
+                border-radius: 3px;
             }
             QScrollBar::handle:vertical:hover {
                 background: #3b3b49;
@@ -778,6 +1036,25 @@ class KokoroQtWindow(QMainWindow):
         self.preset_combo.addItems(names)
         self.preset_combo.setCurrentText(current)
         self.preset_combo.blockSignals(False)
+
+    def _on_text_document_size_changed(self, _size) -> None:
+        doc_height = self.text_input.document().documentLayout().documentSize().height()
+        viewport = self.text_input.viewportMargins()
+        frame = self.text_input.frameWidth() * 2
+        vertical_padding = viewport.top() + viewport.bottom()
+        target = max(self._text_min_height, int(math.ceil(doc_height + frame + vertical_padding)))
+        self._text_current_height = target
+        self._resize_text_input()
+
+    def _resize_text_input(self) -> None:
+        target = max(self._text_min_height, int(self._text_current_height))
+        self._text_current_height = target
+        scroll_bar = self._generate_scroll.verticalScrollBar() if hasattr(self, "_generate_scroll") else None
+        previous_scroll = scroll_bar.value() if scroll_bar is not None else 0
+        self.text_input.setFixedHeight(target)
+        self.text_input.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        if scroll_bar is not None and self.text_input.hasFocus():
+            QTimer.singleShot(0, lambda sb=scroll_bar, v=previous_scroll: sb.setValue(v))
 
     def _init_engine(self) -> None:
         self._load_voices()
@@ -962,6 +1239,48 @@ class KokoroQtWindow(QMainWindow):
         self.update_label.setText("…")
         QApplication.processEvents()
         self.update_label.setText(auto_update())
+
+    def _show_settings_page(self) -> None:
+        self.pages.setCurrentWidget(self.settings_page)
+
+    def _show_main_page(self) -> None:
+        self.pages.setCurrentWidget(self.main_page)
+
+    def _on_restore_audio_defaults(self) -> None:
+        self.style_combo.setCurrentText("Neutral")
+        self._refresh_preset_names()
+        self.speed_spin.setValue(1.0)
+        self.gain_spin.setValue(0.0)
+        self.format_combo.setCurrentText("wav")
+        self._set_status(self._t("audio_defaults_restored"))
+
+    def _on_restore_defaults(self) -> None:
+        self._L = "nb"
+        save_settings({})
+
+        self.ui_lang_combo.blockSignals(True)
+        self.ui_lang_combo.setCurrentText("Norsk")
+        self.ui_lang_combo.blockSignals(False)
+
+        self.show_all_chk.blockSignals(True)
+        self.show_all_chk.setChecked(False)
+        self.show_all_chk.blockSignals(False)
+
+        self.model_combo.blockSignals(True)
+        self.model_combo.setCurrentText(f"Kokoro {DEFAULT_MODEL_VERSION}")
+        self.model_combo.blockSignals(False)
+
+        self.lang_combo.blockSignals(True)
+        self.lang_combo.setCurrentIndex(0)
+        self.lang_combo.blockSignals(False)
+        self.style_combo.setCurrentText("Neutral")
+        self._refresh_preset_names()
+        self.speed_spin.setValue(1.0)
+        self.gain_spin.setValue(0.0)
+        self.format_combo.setCurrentText("wav")
+
+        self._on_lang_change()
+        self._set_status(self._t("defaults_restored"))
 
     def closeEvent(self, event) -> None:
         self.player.stop()
