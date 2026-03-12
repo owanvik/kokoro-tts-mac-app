@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import threading
 import sys
 import shutil
 import time
@@ -26,6 +27,8 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
+    QProgressBar,
+    QProgressDialog,
     QPushButton,
     QToolButton,
     QSlider,
@@ -129,6 +132,26 @@ class AudioPlayerWidget(QWidget):
 
         self._timer = self.startTimer(80)
 
+    def _pick_output_device(self) -> int | None:
+        try:
+            default_dev = sd.default.device
+            if isinstance(default_dev, (tuple, list)) and len(default_dev) >= 2:
+                out_dev = default_dev[1]
+                if isinstance(out_dev, int) and out_dev >= 0:
+                    info = sd.query_devices(out_dev)
+                    if info and int(info.get("max_output_channels", 0)) > 0:
+                        return out_dev
+        except Exception:
+            pass
+
+        try:
+            for idx, info in enumerate(sd.query_devices()):
+                if int(info.get("max_output_channels", 0)) > 0:
+                    return idx
+        except Exception:
+            return None
+        return None
+
     def load_file(self, path: str) -> None:
         self.stop()
         try:
@@ -174,13 +197,19 @@ class AudioPlayerWidget(QWidget):
         self._pause_offset = max(0.0, min(offset, max(0.0, self._duration - 0.05)))
 
         start_frame = int(self._pause_offset * self._sr)
-        sd.play(
-            self._audio[start_frame:],
-            self._sr,
-            blocking=False,
-            latency="high",
-            blocksize=2048,
-        )
+        out_device = self._pick_output_device()
+        play_kwargs = {
+            "blocking": False,
+            "latency": "high",
+            "blocksize": 2048,
+        }
+        if out_device is not None:
+            play_kwargs["device"] = out_device
+
+        try:
+            sd.play(self._audio[start_frame:], self._sr, **play_kwargs)
+        except Exception:
+            return
         self._play_start = time.time() - self._pause_offset
         self.play_btn.setText("⏸")
 
@@ -619,7 +648,18 @@ class KokoroQtWindow(QMainWindow):
         self.generate_btn.setObjectName("primary")
         self.generate_btn.setMinimumHeight(40)
         self.generate_btn.clicked.connect(self._on_generate)
-        content_layout.addWidget(self.generate_btn)
+
+        self.generate_progress = QProgressBar()
+        self.generate_progress.setObjectName("generateProgress")
+        self.generate_progress.setRange(0, 0)
+        self.generate_progress.setTextVisible(False)
+        self.generate_progress.setMinimumHeight(40)
+
+        self.generate_action_stack = QStackedWidget()
+        self.generate_action_stack.addWidget(self.generate_btn)
+        self.generate_action_stack.addWidget(self.generate_progress)
+        self.generate_action_stack.setCurrentWidget(self.generate_btn)
+        content_layout.addWidget(self.generate_action_stack)
 
         player_card, player_layout = self._card("Player")
         self.player = AudioPlayerWidget()
@@ -947,6 +987,18 @@ class KokoroQtWindow(QMainWindow):
             }
             QPushButton#secondary:hover { border: 1px solid #f97316; }
 
+            QProgressBar#generateProgress {
+                background: #1e1e24;
+                border: 1px solid #2a2a34;
+                border-radius: 10px;
+                padding: 2px;
+            }
+            QProgressBar#generateProgress::chunk {
+                background: #f97316;
+                border-radius: 8px;
+                margin: 0px;
+            }
+
             QTabWidget::pane { border: none; }
             QTabBar::tab {
                 background: #1e1e24;
@@ -1135,26 +1187,43 @@ class KokoroQtWindow(QMainWindow):
             self._set_status(self._t("error_empty_text"))
             return
 
-        self.generate_btn.setEnabled(False)
-        self.generate_btn.setText(self._t("generate") + "…")
         self._set_status("Generating…")
-        QApplication.processEvents()
+        self._set_generate_loading(True)
 
-        try:
-            out_path, info = synthesize(
-                text=text,
-                voice=voice,
-                speed=self.speed_spin.value(),
-                lang=self._current_lang_code(),
-                style=self.style_combo.currentText(),
-                gain_db=self.gain_spin.value(),
-                output_format=self.format_combo.currentText(),
-            )
-        except Exception as exc:
-            self._set_status(str(exc))
-            QMessageBox.critical(self, "Kokoro TTS", str(exc))
+        args = {
+            "text": text,
+            "voice": voice,
+            "speed": self.speed_spin.value(),
+            "lang": self._current_lang_code(),
+            "style": self.style_combo.currentText(),
+            "gain_db": self.gain_spin.value(),
+            "output_format": self.format_combo.currentText(),
+        }
+
+        def _worker() -> None:
+            try:
+                out_path, info = synthesize(**args)
+                error = ""
+            except Exception as exc:
+                out_path, info = "", ""
+                error = str(exc)
+            QTimer.singleShot(0, lambda: self._finish_generate(args["text"], out_path, info, error))
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _set_generate_loading(self, loading: bool) -> None:
+        if loading:
+            self.generate_btn.setEnabled(False)
+            self.generate_action_stack.setCurrentWidget(self.generate_progress)
+        else:
+            self.generate_action_stack.setCurrentWidget(self.generate_btn)
             self.generate_btn.setEnabled(True)
-            self.generate_btn.setText(self._t("generate"))
+
+    def _finish_generate(self, text: str, out_path: str, info: str, error: str) -> None:
+        self._set_generate_loading(False)
+        if error:
+            self._set_status(error)
+            QMessageBox.critical(self, "Kokoro TTS", error)
             return
 
         clean = " ".join(text.split())
@@ -1168,8 +1237,6 @@ class KokoroQtWindow(QMainWindow):
         self.player._play(0.0)
 
         self._set_status(info)
-        self.generate_btn.setEnabled(True)
-        self.generate_btn.setText(self._t("generate"))
 
     def _refresh_history(self) -> None:
         self.history_list.clear()
@@ -1196,15 +1263,28 @@ class KokoroQtWindow(QMainWindow):
         src = Path(path)
         if not src.exists():
             return
+        selected_format = self.format_combo.currentText().strip().lower()
+        preferred_ext = ".mp3" if selected_format == "mp3" else ".wav"
+        if preferred_ext == ".mp3":
+            initial_filter = "MP3 Audio (*.mp3)"
+            filters = "MP3 Audio (*.mp3);;WAV Audio (*.wav);;All files (*.*)"
+        else:
+            initial_filter = "WAV Audio (*.wav)"
+            filters = "WAV Audio (*.wav);;MP3 Audio (*.mp3);;All files (*.*)"
+        suggested = src.with_suffix(preferred_ext)
         dest, _ = QFileDialog.getSaveFileName(
             self,
             self._t("download"),
-            str(src),
-            "Audio (*.wav *.mp3);;All files (*.*)",
+            str(suggested),
+            filters,
+            initial_filter,
         )
         if dest:
-            shutil.copy2(src, dest)
-            self._set_status(f"Saved → {Path(dest).name}")
+            dest_path = Path(dest)
+            if dest_path.suffix.lower() != preferred_ext:
+                dest_path = dest_path.with_suffix(preferred_ext)
+            shutil.copy2(src, dest_path)
+            self._set_status(f"Saved → {dest_path.name}")
 
     def _on_uilang(self, value: str) -> None:
         code = "nb" if value == "Norsk" else "en"
@@ -1236,9 +1316,31 @@ class KokoroQtWindow(QMainWindow):
         self.update_label.setText(check_updates_message())
 
     def _on_auto_update(self) -> None:
-        self.update_label.setText("…")
+        self.auto_update_btn.setEnabled(False)
+        self.update_label.setText("Starter oppdatering…")
+        self._update_progress = QProgressDialog("Laster ned og installerer oppdatering…", "", 0, 0, self)
+        self._update_progress.setWindowTitle("Kokoro TTS")
+        self._update_progress.setCancelButton(None)
+        self._update_progress.setWindowModality(Qt.ApplicationModal)
+        self._update_progress.setMinimumDuration(0)
+        self._update_progress.show()
         QApplication.processEvents()
-        self.update_label.setText(auto_update())
+
+        def _worker() -> None:
+            try:
+                msg = auto_update()
+            except Exception as exc:
+                msg = str(exc)
+            QTimer.singleShot(0, lambda m=msg: self._finish_auto_update(m))
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _finish_auto_update(self, message: str) -> None:
+        if hasattr(self, "_update_progress") and self._update_progress is not None:
+            self._update_progress.close()
+            self._update_progress = None
+        self.auto_update_btn.setEnabled(True)
+        self.update_label.setText(message)
 
     def _show_settings_page(self) -> None:
         self.pages.setCurrentWidget(self.settings_page)
