@@ -20,6 +20,13 @@ import numpy as np
 import soundfile as sf
 from kokoro_onnx import Kokoro
 
+try:
+    from piper.config import SynthesisConfig
+    from piper.voice import PiperVoice
+except Exception:
+    SynthesisConfig = None
+    PiperVoice = None
+
 # ── Paths ────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent
 if getattr(sys, "frozen", False):
@@ -442,6 +449,7 @@ def _download_piper_voice(voice_id: str) -> tuple[Path, Path]:
 engine: Kokoro | None = None
 voices: list[str] = []
 _current_model_version: str | None = None
+_piper_voice_cache: dict[str, object] = {}
 
 def _piper_runtime_dir() -> Path:
     d = APP_DIR / "runtime" / "piper"
@@ -539,12 +547,52 @@ def _resolve_piper_command() -> list[str] | None:
         return [str(runtime_binary)]
     return None
 
+def _synthesize_with_piper_python(text: str, voice_id: str, speed: float) -> tuple[np.ndarray, int]:
+    if PiperVoice is None or SynthesisConfig is None:
+        raise RuntimeError("Piper Python runtime is unavailable")
+
+    model_path, config_path = _download_piper_voice(voice_id)
+    cached = _piper_voice_cache.get(voice_id)
+    if cached is None:
+        cached = PiperVoice.load(model_path=model_path, config_path=config_path)
+        _piper_voice_cache[voice_id] = cached
+
+    length_scale = max(0.35, min(2.5, 1.0 / max(0.35, float(speed))))
+    syn_config = SynthesisConfig(length_scale=length_scale)
+    chunks = list(cached.synthesize(text, syn_config=syn_config))
+    if not chunks:
+        raise RuntimeError("Piper returned no audio chunks")
+
+    parts: list[np.ndarray] = []
+    sample_rate = int(chunks[0].sample_rate)
+    for chunk in chunks:
+        arr = getattr(chunk, "audio_float_array", None)
+        if arr is None:
+            continue
+        part = np.asarray(arr, dtype=np.float32).reshape(-1)
+        if part.size > 0:
+            parts.append(part)
+    if not parts:
+        raise RuntimeError("Piper returned empty audio")
+    audio = np.concatenate(parts)
+    return np.ascontiguousarray(audio, dtype=np.float32), sample_rate
+
 def _synthesize_with_piper(text: str, voice: str, speed: float) -> tuple[np.ndarray, int]:
+    voice_id = voice if voice in PIPER_MODEL_REGISTRY else get_piper_model()
+    python_error: str | None = None
+
+    if PiperVoice is not None and SynthesisConfig is not None:
+        try:
+            return _synthesize_with_piper_python(text=text, voice_id=voice_id, speed=speed)
+        except Exception as exc:
+            python_error = str(exc)
+
     piper_cmd = _resolve_piper_command()
     if piper_cmd is None:
+        if python_error:
+            raise RuntimeError(tr("piper_synthesis_failed", error=python_error))
         raise RuntimeError(tr("piper_not_available"))
 
-    voice_id = voice if voice in PIPER_MODEL_REGISTRY else get_piper_model()
     model_path, config_path = _download_piper_voice(voice_id)
 
     tmp_wav = OUT_DIR / f"_tmp_piper_{datetime.now().strftime('%H%M%S%f')}.wav"
@@ -572,6 +620,8 @@ def _synthesize_with_piper(text: str, voice: str, speed: float) -> tuple[np.ndar
         return np.ascontiguousarray(audio, dtype=np.float32), int(sample_rate)
     except subprocess.CalledProcessError as exc:
         err = exc.stderr.decode(errors="replace").strip()
+        if python_error:
+            err = f"python={python_error} | binary={err}"
         raise RuntimeError(tr("piper_synthesis_failed", error=err or "unknown"))
     finally:
         tmp_wav.unlink(missing_ok=True)
