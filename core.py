@@ -253,6 +253,61 @@ def _get_latest_release_via_redirect() -> tuple[str, str, str]:
     dmg_url = f"https://github.com/{GITHUB_REPO}/releases/download/{tag}/KokoroTTS-mac-arm64.dmg"
     return tag, final_url, dmg_url
 
+def get_recent_releases(limit: int = 20) -> list[dict[str, str]]:
+    safe_limit = max(1, min(int(limit), 20))
+    try:
+        req = urllib.request.Request(
+            f"https://api.github.com/repos/{GITHUB_REPO}/releases?per_page={safe_limit}",
+            headers={"Accept": "application/vnd.github+json", "User-Agent": "KokoroTTS"},
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+
+        releases: list[dict[str, str]] = []
+        for release in data if isinstance(data, list) else []:
+            tag = str(release.get("tag_name") or "").strip()
+            if not tag:
+                continue
+            html_url = str(release.get("html_url") or "").strip() or f"https://github.com/{GITHUB_REPO}/releases/tag/{tag}"
+            dmg_url = ""
+            for asset in release.get("assets", []) or []:
+                name = (asset.get("name") or "").lower()
+                if name.endswith(".dmg"):
+                    dmg_url = str(asset.get("browser_download_url") or "")
+                    break
+            if not dmg_url:
+                dmg_url = f"https://github.com/{GITHUB_REPO}/releases/download/{tag}/KokoroTTS-mac-arm64.dmg"
+            releases.append({
+                "tag": tag,
+                "url": html_url,
+                "dmg_url": dmg_url,
+            })
+        return releases[:safe_limit]
+    except Exception:
+        req = urllib.request.Request(
+            f"https://github.com/{GITHUB_REPO}/releases",
+            headers={"User-Agent": "KokoroTTS"},
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            html = resp.read().decode("utf-8", errors="replace")
+
+        tags: list[str] = []
+        for raw_tag in re.findall(rf"/{re.escape(GITHUB_REPO)}/releases/tag/([^\"#?]+)", html):
+            tag = urllib.parse.unquote(raw_tag).strip()
+            if tag and tag not in tags:
+                tags.append(tag)
+            if len(tags) >= safe_limit:
+                break
+
+        return [
+            {
+                "tag": tag,
+                "url": f"https://github.com/{GITHUB_REPO}/releases/tag/{tag}",
+                "dmg_url": f"https://github.com/{GITHUB_REPO}/releases/download/{tag}/KokoroTTS-mac-arm64.dmg",
+            }
+            for tag in tags
+        ]
+
 def get_latest_release_details() -> tuple[str, str, str, str]:
     try:
         req = urllib.request.Request(
@@ -319,15 +374,10 @@ def _get_app_bundle_path() -> Path | None:
             return parent
     return None
 
-def auto_update() -> str:
-    try:
-        latest_tag, latest_url, dmg_url = get_latest_release()
-    except Exception as e:
-        return tr("update_check_error", error=str(e))
-    if _parse_version(latest_tag) <= _parse_version(APP_VERSION):
-        return tr("already_latest", version=APP_VERSION)
+def _install_release_from_dmg(tag: str, dmg_url: str, release_url: str) -> str:
     if not dmg_url:
-        return tr("dmg_not_found", tag=latest_tag, url=latest_url)
+        return tr("dmg_not_found", tag=tag, url=release_url)
+
     current_app = _get_app_bundle_path()
     if current_app is None:
         return tr("update_dev_mode")
@@ -388,7 +438,22 @@ open "{install_dest / app_name}"
         time.sleep(1.5)
         os._exit(0)
     threading.Thread(target=_delayed_exit, daemon=True).start()
-    return tr("update_restarting", tag=latest_tag)
+    return tr("update_restarting", tag=tag)
+
+def auto_update() -> str:
+    try:
+        latest_tag, latest_url, dmg_url = get_latest_release()
+    except Exception as e:
+        return tr("update_check_error", error=str(e))
+    if _parse_version(latest_tag) <= _parse_version(APP_VERSION):
+        return tr("already_latest", version=APP_VERSION)
+    return _install_release_from_dmg(latest_tag, dmg_url, latest_url)
+
+def rollback_to_release(tag: str, dmg_url: str, release_url: str) -> str:
+    clean_tag = (tag or "").strip()
+    if not clean_tag:
+        return tr("rollback_invalid_selection")
+    return _install_release_from_dmg(clean_tag, dmg_url, release_url)
 
 # ── Model download / engine ──────────────────────────────────────────
 def _download(url: str, dest: Path) -> None:

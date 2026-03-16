@@ -59,9 +59,11 @@ from core import (
     ensure_engine,
     get_available_piper_models,
     get_model_version,
+    get_recent_releases,
     get_piper_model,
     get_tts_engine,
     get_ui_language,
+    rollback_to_release,
     load_favorites,
     load_settings,
     save_settings,
@@ -805,6 +807,20 @@ class KokoroQtWindow(QMainWindow):
         update_row.addWidget(self.auto_update_btn)
         update_row.addStretch(1)
         update_layout.addLayout(update_row)
+
+        rollback_row = QHBoxLayout()
+        self.rollback_combo = NoWheelComboBox()
+        self.rollback_combo.setObjectName("inputField")
+        self.rollback_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.rollback_btn = QPushButton(self._t("rollback_now"))
+        self.rollback_btn.setMinimumHeight(34)
+        self.rollback_btn.clicked.connect(self._on_rollback)
+        rollback_row.addWidget(self.rollback_combo)
+        rollback_row.addWidget(self.rollback_btn)
+        update_layout.addLayout(rollback_row)
+
+        self._rollback_releases: list[dict[str, str]] = []
+        self._load_rollback_releases()
         content_layout.addWidget(update_card)
 
     def _configure_tab_navigation(self) -> None:
@@ -840,7 +856,9 @@ class KokoroQtWindow(QMainWindow):
         QWidget.setTabOrder(self.engine_combo, self.model_combo)
         QWidget.setTabOrder(self.model_combo, self.check_update_btn)
         QWidget.setTabOrder(self.check_update_btn, self.auto_update_btn)
-        QWidget.setTabOrder(self.auto_update_btn, self.restore_defaults_btn)
+        QWidget.setTabOrder(self.auto_update_btn, self.rollback_combo)
+        QWidget.setTabOrder(self.rollback_combo, self.rollback_btn)
+        QWidget.setTabOrder(self.rollback_btn, self.restore_defaults_btn)
         QWidget.setTabOrder(self.restore_defaults_btn, self.back_to_main_btn)
         QWidget.setTabOrder(self.back_to_main_btn, self.ui_lang_combo)
 
@@ -1433,6 +1451,68 @@ class KokoroQtWindow(QMainWindow):
             intro = self._t("release_notes_intro", tag=tag)
             QMessageBox.information(self, title, f"{intro}\n\n{release_notes}")
 
+    def _load_rollback_releases(self) -> None:
+        self.rollback_combo.clear()
+        self.rollback_combo.addItem(self._t("rollback_loading"), "")
+        QApplication.processEvents()
+        try:
+            releases = get_recent_releases(20)
+        except Exception:
+            self._rollback_releases = []
+            self.rollback_combo.clear()
+            self.rollback_combo.addItem(self._t("rollback_unavailable"), "")
+            self.rollback_btn.setEnabled(False)
+            return
+
+        self._rollback_releases = releases
+        self.rollback_combo.clear()
+        if not releases:
+            self.rollback_combo.addItem(self._t("rollback_unavailable"), "")
+            self.rollback_btn.setEnabled(False)
+            return
+
+        for release in releases:
+            tag = release.get("tag", "")
+            self.rollback_combo.addItem(tag, tag)
+        self.rollback_btn.setEnabled(True)
+
+    def _on_rollback(self) -> None:
+        selected_tag = str(self.rollback_combo.currentData() or "")
+        selected_release = None
+        for release in self._rollback_releases:
+            if release.get("tag") == selected_tag:
+                selected_release = release
+                break
+        if not selected_release:
+            self.update_label.setText(self._t("rollback_invalid_selection"))
+            return
+
+        self.rollback_btn.setEnabled(False)
+        self.auto_update_btn.setEnabled(False)
+        self.update_label.setText(self._t("rollback_starting", tag=selected_tag))
+        self._update_progress = QProgressDialog(self._t("rollback_progress"), "", 0, 0, self)
+        self._update_progress.setWindowTitle("Kokoro TTS")
+        self._update_progress.setCancelButton(None)
+        self._update_progress.setWindowModality(Qt.ApplicationModal)
+        self._update_progress.setMinimumDuration(0)
+        self._update_progress.show()
+        QApplication.processEvents()
+
+        def _worker() -> None:
+            try:
+                msg = rollback_to_release(
+                    tag=selected_release.get("tag", ""),
+                    dmg_url=selected_release.get("dmg_url", ""),
+                    release_url=selected_release.get("url", ""),
+                )
+            except Exception as exc:
+                msg = str(exc)
+            self._update_result_queue.put(msg)
+
+        self._update_result_queue = queue.Queue(maxsize=1)
+        threading.Thread(target=_worker, daemon=True).start()
+        self._poll_auto_update_result()
+
     def _on_auto_update(self) -> None:
         self.auto_update_btn.setEnabled(False)
         self.update_label.setText("Starter oppdatering…")
@@ -1468,6 +1548,8 @@ class KokoroQtWindow(QMainWindow):
             self._update_progress.close()
             self._update_progress = None
         self.auto_update_btn.setEnabled(True)
+        if hasattr(self, "rollback_btn"):
+            self.rollback_btn.setEnabled(bool(getattr(self, "_rollback_releases", [])))
         self.update_label.setText(message)
 
     def _show_settings_page(self) -> None:
