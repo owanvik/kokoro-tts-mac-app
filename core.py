@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.request
+from urllib.error import URLError, HTTPError
 from datetime import datetime
 from pathlib import Path
 
@@ -287,22 +288,44 @@ open "{install_dest / app_name}"
 def _download(url: str, dest: Path) -> None:
     if dest.exists() and dest.stat().st_size > 0:
         return
-    urllib.request.urlretrieve(url, dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    last_error: Exception | None = None
+    for _ in range(3):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "KokoroTTS"})
+            with urllib.request.urlopen(req, timeout=30) as resp, open(dest, "wb") as out_f:
+                shutil.copyfileobj(resp, out_f)
+            if dest.exists() and dest.stat().st_size > 0:
+                return
+            raise RuntimeError("Downloaded file is empty")
+        except (URLError, HTTPError, TimeoutError, OSError, RuntimeError) as exc:
+            last_error = exc
+            if dest.exists() and dest.stat().st_size == 0:
+                dest.unlink(missing_ok=True)
+            continue
+    raise RuntimeError(f"Download failed for {url}: {last_error}")
 
 def _download_model(version: str) -> tuple[Path, Path]:
     info = MODEL_REGISTRY[version]
     model_path, voices_path = _model_paths(version)
+    mirror_errors: list[str] = []
     for model_url, voices_url in info["urls"]:
         try:
             _download(model_url, model_path)
             _download(voices_url, voices_path)
             return model_path, voices_path
-        except Exception:
+        except Exception as exc:
+            mirror_errors.append(f"model={model_url} | voices={voices_url} | error={exc}")
             for p in (model_path, voices_path):
                 if p.exists() and p.stat().st_size == 0:
                     p.unlink()
             continue
-    raise RuntimeError(f"Could not download model {version} from any mirror")
+    details = "\n".join(mirror_errors[-3:]) if mirror_errors else "Unknown network error"
+    raise RuntimeError(
+        f"Could not download model {version} from any mirror.\n"
+        f"Please check network/proxy/firewall settings and try again.\n"
+        f"Details:\n{details}"
+    )
 
 engine: Kokoro | None = None
 voices: list[str] = []
