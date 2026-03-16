@@ -45,6 +45,21 @@ MODEL_REGISTRY: dict[str, dict] = {
     },
 }
 DEFAULT_MODEL_VERSION = "v1.0"
+DEFAULT_TTS_ENGINE = "kokoro"
+
+PIPER_VOICE_REGISTRY: dict[str, dict] = {
+    "nb_NO-talesyntese-medium": {
+        "lang": "nb",
+        "model": "nb_NO-talesyntese-medium.onnx",
+        "config": "nb_NO-talesyntese-medium.onnx.json",
+        "urls": [
+            (
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/nb/nb_NO/talesyntese/medium/nb_NO-talesyntese-medium.onnx",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/nb/nb_NO/talesyntese/medium/nb_NO-talesyntese-medium.onnx.json",
+            ),
+        ],
+    },
+}
 
 APP_VERSION = f"v{(BASE_DIR / 'VERSION').read_text(encoding='utf-8').strip()}"
 APP_DISPLAY_VERSION = f"{APP_VERSION} — Eiriik Edition"
@@ -129,6 +144,10 @@ def get_ui_language() -> str:
 def get_model_version() -> str:
     v = load_settings().get("model_version", DEFAULT_MODEL_VERSION)
     return v if v in MODEL_REGISTRY else DEFAULT_MODEL_VERSION
+
+def get_tts_engine() -> str:
+    engine = str(load_settings().get("tts_engine", DEFAULT_TTS_ENGINE)).lower()
+    return engine if engine in {"kokoro", "piper"} else DEFAULT_TTS_ENGINE
 
 _locale_cache: dict[str, dict[str, str]] = {}
 
@@ -327,12 +346,103 @@ def _download_model(version: str) -> tuple[Path, Path]:
         f"Details:\n{details}"
     )
 
+def _piper_dir() -> Path:
+    d = MODELS_DIR / "piper"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+def _piper_paths(voice_id: str) -> tuple[Path, Path]:
+    info = PIPER_VOICE_REGISTRY[voice_id]
+    base = _piper_dir()
+    return base / info["model"], base / info["config"]
+
+def _download_piper_voice(voice_id: str) -> tuple[Path, Path]:
+    if voice_id not in PIPER_VOICE_REGISTRY:
+        raise RuntimeError(f"Unknown Piper voice: {voice_id}")
+    info = PIPER_VOICE_REGISTRY[voice_id]
+    model_path, config_path = _piper_paths(voice_id)
+    mirror_errors: list[str] = []
+    for model_url, config_url in info["urls"]:
+        try:
+            _download(model_url, model_path)
+            _download(config_url, config_path)
+            return model_path, config_path
+        except Exception as exc:
+            mirror_errors.append(f"model={model_url} | config={config_url} | error={exc}")
+            for p in (model_path, config_path):
+                if p.exists() and p.stat().st_size == 0:
+                    p.unlink(missing_ok=True)
+            continue
+    details = "\n".join(mirror_errors[-3:]) if mirror_errors else "Unknown network error"
+    raise RuntimeError(
+        f"Could not download Piper voice '{voice_id}' from any mirror.\n"
+        f"Please check network/proxy/firewall settings and try again.\n"
+        f"Details:\n{details}"
+    )
+
 engine: Kokoro | None = None
 voices: list[str] = []
 _current_model_version: str | None = None
 
+def _resolve_piper_command() -> list[str] | None:
+    piper_bin = shutil.which("piper")
+    if piper_bin:
+        return [piper_bin]
+    try:
+        probe = subprocess.run(
+            [sys.executable, "-m", "piper", "--help"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=8,
+            check=False,
+        )
+        if probe.returncode == 0:
+            return [sys.executable, "-m", "piper"]
+    except Exception:
+        pass
+    return None
+
+def _synthesize_with_piper(text: str, voice: str, speed: float) -> tuple[np.ndarray, int]:
+    piper_cmd = _resolve_piper_command()
+    if piper_cmd is None:
+        raise RuntimeError(tr("piper_not_available"))
+
+    voice_id = voice if voice in PIPER_VOICE_REGISTRY else "nb_NO-talesyntese-medium"
+    model_path, config_path = _download_piper_voice(voice_id)
+
+    tmp_wav = OUT_DIR / f"_tmp_piper_{datetime.now().strftime('%H%M%S%f')}.wav"
+    length_scale = max(0.35, min(2.5, 1.0 / max(0.35, float(speed))))
+
+    cmd = [
+        *piper_cmd,
+        "--model", str(model_path),
+        "--config", str(config_path),
+        "--output_file", str(tmp_wav),
+        "--length_scale", f"{length_scale:.3f}",
+    ]
+    try:
+        subprocess.run(
+            cmd,
+            input=text.encode("utf-8"),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            check=True,
+            timeout=120,
+        )
+        audio, sample_rate = sf.read(tmp_wav, dtype="float32")
+        if isinstance(audio, np.ndarray) and audio.ndim > 1:
+            audio = audio.mean(axis=1)
+        return np.ascontiguousarray(audio, dtype=np.float32), int(sample_rate)
+    except subprocess.CalledProcessError as exc:
+        err = exc.stderr.decode(errors="replace").strip()
+        raise RuntimeError(tr("piper_synthesis_failed", error=err or "unknown"))
+    finally:
+        tmp_wav.unlink(missing_ok=True)
+
 def ensure_engine(version: str | None = None) -> tuple[Kokoro, list[str]]:
     global engine, voices, _current_model_version
+    if get_tts_engine() == "piper":
+        return None, list(PIPER_VOICE_REGISTRY.keys())
     version = version or get_model_version()
     if engine is None or _current_model_version != version:
         model_path, voices_path = _download_model(version)
@@ -381,11 +491,15 @@ def synthesize(text: str, voice: str, speed: float, lang: str,
     if not text or not text.strip():
         raise ValueError(tr("error_empty_text"))
 
+    engine_name = get_tts_engine()
     styled_text, styled_speed = apply_style(text, style, speed)
-    tts, _ = ensure_engine()
-    audio, sample_rate = tts.create(
-        text=styled_text, voice=voice, speed=styled_speed, lang=lang,
-    )
+    if engine_name == "piper":
+        audio, sample_rate = _synthesize_with_piper(styled_text, voice, styled_speed)
+    else:
+        tts, _ = ensure_engine()
+        audio, sample_rate = tts.create(
+            text=styled_text, voice=voice, speed=styled_speed, lang=lang,
+        )
     audio = np.clip(audio * _db_to_gain(float(gain_db)), -1.0, 1.0)
 
     voice_safe = re.sub(r'[^\w\s-]', '', voice).strip()
@@ -401,4 +515,6 @@ def synthesize(text: str, voice: str, speed: float, lang: str,
 
     info = tr("synth_done", voice=voice, lang=lang, style=style,
               speed=f"{styled_speed:.2f}", gain=f"{gain_db:+.1f}", format=ext.upper())
+    if engine_name == "piper":
+        info = f"{info} | engine=Piper"
     return str(out_path), info

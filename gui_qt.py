@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import os
 import queue
 import threading
 import sys
@@ -13,7 +14,7 @@ from pathlib import Path
 import numpy as np
 import sounddevice as sd
 import soundfile as sf
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QLibraryInfo
 from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -55,6 +56,7 @@ from core import (
     check_updates_message,
     ensure_engine,
     get_model_version,
+    get_tts_engine,
     get_ui_language,
     load_favorites,
     load_settings,
@@ -758,6 +760,17 @@ class KokoroQtWindow(QMainWindow):
         content_layout.addWidget(voice_card)
 
         model_card, model_layout = self._card(self._t("model_settings"))
+
+        self.engine_combo = NoWheelComboBox()
+        self.engine_combo.setObjectName("inputField")
+        self.engine_combo.addItem(self._t("engine_kokoro"), "kokoro")
+        self.engine_combo.addItem(self._t("engine_piper"), "piper")
+        self.engine_combo.setCurrentIndex(0 if get_tts_engine() == "kokoro" else 1)
+        self.engine_combo.currentIndexChanged.connect(self._on_tts_engine_change)
+
+        model_layout.addWidget(QLabel(self._t("tts_engine")))
+        model_layout.addWidget(self.engine_combo)
+
         self.model_combo = NoWheelComboBox()
         self.model_combo.setObjectName("inputField")
         self.model_combo.addItems([f"Kokoro {k}" for k in MODEL_REGISTRY])
@@ -768,6 +781,8 @@ class KokoroQtWindow(QMainWindow):
         model_layout.addWidget(self.model_combo)
         model_layout.addWidget(self.model_info)
         content_layout.addWidget(model_card)
+
+        self._refresh_engine_ui_state()
 
         update_card, update_layout = self._card(self._t("app_status"))
         self.update_label = QLabel(APP_DISPLAY_VERSION)
@@ -816,7 +831,8 @@ class KokoroQtWindow(QMainWindow):
         QWidget.setTabOrder(self.open_settings_btn, self.text_input)
 
         QWidget.setTabOrder(self.ui_lang_combo, self.show_all_chk)
-        QWidget.setTabOrder(self.show_all_chk, self.model_combo)
+        QWidget.setTabOrder(self.show_all_chk, self.engine_combo)
+        QWidget.setTabOrder(self.engine_combo, self.model_combo)
         QWidget.setTabOrder(self.model_combo, self.check_update_btn)
         QWidget.setTabOrder(self.check_update_btn, self.auto_update_btn)
         QWidget.setTabOrder(self.auto_update_btn, self.restore_defaults_btn)
@@ -1339,6 +1355,8 @@ class KokoroQtWindow(QMainWindow):
         self._set_status(self._t("language_saved"))
 
     def _on_model(self, value: str) -> None:
+        if get_tts_engine() != "kokoro":
+            return
         version = value.replace("Kokoro ", "")
         settings = load_settings()
         settings["model_version"] = version
@@ -1353,6 +1371,23 @@ class KokoroQtWindow(QMainWindow):
             self.model_info.setText(self._t("model_switched", version=version))
         except Exception as exc:
             self.model_info.setText(self._t("model_switch_error", error=str(exc)))
+
+    def _refresh_engine_ui_state(self) -> None:
+        engine = get_tts_engine()
+        kokoro_selected = engine == "kokoro"
+        self.model_combo.setEnabled(kokoro_selected)
+        if kokoro_selected:
+            self.model_info.setText("")
+        else:
+            self.model_info.setText(self._t("engine_piper_model_info"))
+
+    def _on_tts_engine_change(self, _index: int) -> None:
+        engine = self.engine_combo.currentData()
+        settings = load_settings()
+        settings["tts_engine"] = str(engine) if engine else "kokoro"
+        save_settings(settings)
+        self._refresh_engine_ui_state()
+        self._load_voices()
 
     def _on_check_update(self) -> None:
         self.update_label.setText("…")
@@ -1426,6 +1461,14 @@ class KokoroQtWindow(QMainWindow):
         self.model_combo.setCurrentText(f"Kokoro {DEFAULT_MODEL_VERSION}")
         self.model_combo.blockSignals(False)
 
+        self.engine_combo.blockSignals(True)
+        self.engine_combo.setCurrentIndex(0)
+        self.engine_combo.blockSignals(False)
+        cfg = load_settings()
+        cfg["tts_engine"] = "kokoro"
+        save_settings(cfg)
+        self._refresh_engine_ui_state()
+
         self.lang_combo.blockSignals(True)
         self.lang_combo.setCurrentIndex(0)
         self.lang_combo.blockSignals(False)
@@ -1443,6 +1486,12 @@ class KokoroQtWindow(QMainWindow):
         super().closeEvent(event)
 
 def main() -> None:
+    plugins_root = QLibraryInfo.path(QLibraryInfo.PluginsPath)
+    if plugins_root:
+        platform_plugins = str(Path(plugins_root) / "platforms")
+        if not os.environ.get("QT_QPA_PLATFORM_PLUGIN_PATH"):
+            os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = platform_plugins
+
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     window = KokoroQtWindow()
