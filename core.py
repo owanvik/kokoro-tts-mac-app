@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import urllib.request
 from urllib.error import URLError, HTTPError
@@ -46,16 +48,28 @@ MODEL_REGISTRY: dict[str, dict] = {
 }
 DEFAULT_MODEL_VERSION = "v1.0"
 DEFAULT_TTS_ENGINE = "kokoro"
+DEFAULT_PIPER_MODEL = "no_NO-talesyntese-medium"
 
-PIPER_VOICE_REGISTRY: dict[str, dict] = {
-    "nb_NO-talesyntese-medium": {
+PIPER_MODEL_REGISTRY: dict[str, dict] = {
+    "no_NO-talesyntese-medium": {
         "lang": "nb",
-        "model": "nb_NO-talesyntese-medium.onnx",
-        "config": "nb_NO-talesyntese-medium.onnx.json",
+        "model": "no_NO-talesyntese-medium.onnx",
+        "config": "no_NO-talesyntese-medium.onnx.json",
         "urls": [
             (
-                "https://huggingface.co/rhasspy/piper-voices/resolve/main/nb/nb_NO/talesyntese/medium/nb_NO-talesyntese-medium.onnx",
-                "https://huggingface.co/rhasspy/piper-voices/resolve/main/nb/nb_NO/talesyntese/medium/nb_NO-talesyntese-medium.onnx.json",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/no/no_NO/talesyntese/medium/no_NO-talesyntese-medium.onnx",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/no/no_NO/talesyntese/medium/no_NO-talesyntese-medium.onnx.json",
+            ),
+        ],
+    },
+    "no_NO-nvcc-medium": {
+        "lang": "nb",
+        "model": "no_NO-nvcc-medium.onnx",
+        "config": "no_NO-nvcc-medium.onnx.json",
+        "urls": [
+            (
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/no/no_NO/nvcc/medium/no_NO-nvcc-medium.onnx",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/no/no_NO/nvcc/medium/no_NO-nvcc-medium.onnx.json",
             ),
         ],
     },
@@ -149,6 +163,13 @@ def get_tts_engine() -> str:
     engine = str(load_settings().get("tts_engine", DEFAULT_TTS_ENGINE)).lower()
     return engine if engine in {"kokoro", "piper"} else DEFAULT_TTS_ENGINE
 
+def get_available_piper_models() -> list[str]:
+    return list(PIPER_MODEL_REGISTRY.keys())
+
+def get_piper_model() -> str:
+    selected = str(load_settings().get("piper_model", DEFAULT_PIPER_MODEL))
+    return selected if selected in PIPER_MODEL_REGISTRY else DEFAULT_PIPER_MODEL
+
 _locale_cache: dict[str, dict[str, str]] = {}
 
 def _load_locale(lang: str) -> dict[str, str]:
@@ -199,7 +220,16 @@ def _parse_version(tag: str) -> tuple[int, ...]:
     nums = re.findall(r"\d+", tag or "")
     return tuple(int(n) for n in nums[:3]) if nums else (0,)
 
-def get_latest_release() -> tuple[str, str, str]:
+def _normalize_release_notes(body: str) -> str:
+    notes = (body or "").strip()
+    if not notes:
+        return ""
+    max_len = 4000
+    if len(notes) > max_len:
+        return notes[:max_len].rstrip() + "\n\n…"
+    return notes
+
+def get_latest_release_details() -> tuple[str, str, str, str]:
     req = urllib.request.Request(
         LATEST_RELEASE_API,
         headers={"Accept": "application/vnd.github+json", "User-Agent": "KokoroTTS"},
@@ -212,16 +242,45 @@ def get_latest_release() -> tuple[str, str, str]:
         if name.endswith(".dmg"):
             dmg_url = asset.get("browser_download_url", "")
             break
-    return data.get("tag_name", ""), data.get("html_url", LATEST_RELEASE_URL), dmg_url
+    release_notes = _normalize_release_notes(str(data.get("body") or ""))
+    return (
+        data.get("tag_name", ""),
+        data.get("html_url", LATEST_RELEASE_URL),
+        dmg_url,
+        release_notes,
+    )
+
+def get_latest_release() -> tuple[str, str, str]:
+    tag, url, dmg_url, _ = get_latest_release_details()
+    return tag, url, dmg_url
+
+def check_updates_details() -> dict[str, str | bool]:
+    try:
+        latest_tag, _, _, release_notes = get_latest_release_details()
+    except Exception:
+        return {
+            "update_available": False,
+            "message": tr("update_check_failed", version=APP_VERSION),
+            "tag": "",
+            "release_notes": "",
+        }
+    if _parse_version(latest_tag) > _parse_version(APP_VERSION):
+        return {
+            "update_available": True,
+            "message": tr("update_available", tag=latest_tag, version=APP_VERSION),
+            "tag": latest_tag,
+            "release_notes": release_notes,
+        }
+    return {
+        "update_available": False,
+        "message": tr("up_to_date", version=APP_VERSION),
+        "tag": latest_tag,
+        "release_notes": "",
+    }
 
 def check_updates_message() -> str:
-    try:
-        latest_tag, _, _ = get_latest_release()
-    except Exception:
-        return tr("update_check_failed", version=APP_VERSION)
-    if _parse_version(latest_tag) > _parse_version(APP_VERSION):
-        return tr("update_available", tag=latest_tag, version=APP_VERSION)
-    return tr("up_to_date", version=APP_VERSION)
+    details = check_updates_details()
+    return str(details["message"])
 
 def _get_app_bundle_path() -> Path | None:
     if not getattr(sys, "frozen", False):
@@ -352,14 +411,14 @@ def _piper_dir() -> Path:
     return d
 
 def _piper_paths(voice_id: str) -> tuple[Path, Path]:
-    info = PIPER_VOICE_REGISTRY[voice_id]
+    info = PIPER_MODEL_REGISTRY[voice_id]
     base = _piper_dir()
     return base / info["model"], base / info["config"]
 
 def _download_piper_voice(voice_id: str) -> tuple[Path, Path]:
-    if voice_id not in PIPER_VOICE_REGISTRY:
+    if voice_id not in PIPER_MODEL_REGISTRY:
         raise RuntimeError(f"Unknown Piper voice: {voice_id}")
-    info = PIPER_VOICE_REGISTRY[voice_id]
+    info = PIPER_MODEL_REGISTRY[voice_id]
     model_path, config_path = _piper_paths(voice_id)
     mirror_errors: list[str] = []
     for model_url, config_url in info["urls"]:
@@ -384,6 +443,81 @@ engine: Kokoro | None = None
 voices: list[str] = []
 _current_model_version: str | None = None
 
+def _piper_runtime_dir() -> Path:
+    d = APP_DIR / "runtime" / "piper"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+def _find_piper_binary(search_dir: Path) -> Path | None:
+    candidates = [search_dir / "piper", search_dir / "bin" / "piper"]
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return candidate
+    for candidate in search_dir.rglob("piper"):
+        if candidate.is_file() and ".app/" not in str(candidate):
+            return candidate
+    return None
+
+def _platform_piper_runtime_urls() -> list[str]:
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+    if system == "darwin" and machine in {"arm64", "aarch64"}:
+        asset = "piper_macos_aarch64.tar.gz"
+    elif system == "darwin":
+        asset = "piper_macos_x64.tar.gz"
+    else:
+        return []
+    return [
+        f"https://github.com/rhasspy/piper/releases/latest/download/{asset}",
+        f"https://github.com/rhasspy/piper/releases/download/2023.11.14-2/{asset}",
+    ]
+
+def _safe_extract_tar_gz(archive_path: Path, dest_dir: Path) -> None:
+    dest_root = dest_dir.resolve()
+    with tarfile.open(archive_path, "r:gz") as tar:
+        for member in tar.getmembers():
+            target = (dest_dir / member.name).resolve()
+            if not str(target).startswith(str(dest_root)):
+                raise RuntimeError("Unsafe archive content")
+        tar.extractall(dest_dir)
+
+def _ensure_piper_runtime_binary() -> Path | None:
+    runtime_dir = _piper_runtime_dir()
+    existing = _find_piper_binary(runtime_dir)
+    if existing is not None:
+        existing.chmod(existing.stat().st_mode | 0o111)
+        return existing
+
+    runtime_urls = _platform_piper_runtime_urls()
+    if not runtime_urls:
+        return None
+
+    archive_path = runtime_dir / "piper_runtime.tar.gz"
+    last_error: Exception | None = None
+    for url in runtime_urls:
+        try:
+            _download(url, archive_path)
+            break
+        except Exception as exc:
+            last_error = exc
+            archive_path.unlink(missing_ok=True)
+            continue
+    if not archive_path.exists():
+        if last_error:
+            raise RuntimeError(f"Could not download Piper runtime: {last_error}")
+        return None
+
+    try:
+        _safe_extract_tar_gz(archive_path, runtime_dir)
+    finally:
+        archive_path.unlink(missing_ok=True)
+
+    binary = _find_piper_binary(runtime_dir)
+    if binary is None:
+        raise RuntimeError("Piper runtime downloaded, but no piper binary was found")
+    binary.chmod(binary.stat().st_mode | 0o111)
+    return binary
+
 def _resolve_piper_command() -> list[str] | None:
     piper_bin = shutil.which("piper")
     if piper_bin:
@@ -400,6 +534,9 @@ def _resolve_piper_command() -> list[str] | None:
             return [sys.executable, "-m", "piper"]
     except Exception:
         pass
+    runtime_binary = _ensure_piper_runtime_binary()
+    if runtime_binary is not None:
+        return [str(runtime_binary)]
     return None
 
 def _synthesize_with_piper(text: str, voice: str, speed: float) -> tuple[np.ndarray, int]:
@@ -407,7 +544,7 @@ def _synthesize_with_piper(text: str, voice: str, speed: float) -> tuple[np.ndar
     if piper_cmd is None:
         raise RuntimeError(tr("piper_not_available"))
 
-    voice_id = voice if voice in PIPER_VOICE_REGISTRY else "nb_NO-talesyntese-medium"
+    voice_id = voice if voice in PIPER_MODEL_REGISTRY else get_piper_model()
     model_path, config_path = _download_piper_voice(voice_id)
 
     tmp_wav = OUT_DIR / f"_tmp_piper_{datetime.now().strftime('%H%M%S%f')}.wav"
@@ -442,7 +579,7 @@ def _synthesize_with_piper(text: str, voice: str, speed: float) -> tuple[np.ndar
 def ensure_engine(version: str | None = None) -> tuple[Kokoro, list[str]]:
     global engine, voices, _current_model_version
     if get_tts_engine() == "piper":
-        return None, list(PIPER_VOICE_REGISTRY.keys())
+        return None, [get_piper_model()]
     version = version or get_model_version()
     if engine is None or _current_model_version != version:
         model_path, voices_path = _download_model(version)

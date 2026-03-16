@@ -48,14 +48,18 @@ from core import (
     APP_VERSION,
     BASE_DIR,
     DEFAULT_MODEL_VERSION,
+    DEFAULT_PIPER_MODEL,
     LANGUAGE_CHOICES,
     MODEL_REGISTRY,
     STYLES,
     apply_preset,
     auto_update,
+    check_updates_details,
     check_updates_message,
     ensure_engine,
+    get_available_piper_models,
     get_model_version,
+    get_piper_model,
     get_tts_engine,
     get_ui_language,
     load_favorites,
@@ -1173,7 +1177,10 @@ class KokoroQtWindow(QMainWindow):
             QMessageBox.critical(self, "Kokoro TTS", str(exc))
             return
 
-        filtered = voices_for_lang(self._current_lang_code(), voices, self.show_all_chk.isChecked())
+        if get_tts_engine() == "piper":
+            filtered = voices
+        else:
+            filtered = voices_for_lang(self._current_lang_code(), voices, self.show_all_chk.isChecked())
         self._voices = filtered
         self.voice_combo.clear()
         self.voice_combo.addItems(filtered)
@@ -1182,6 +1189,9 @@ class KokoroQtWindow(QMainWindow):
         self._set_status(self._t("up_to_date", version=APP_VERSION))
 
     def _on_lang_change(self, _=None) -> None:
+        if get_tts_engine() == "piper":
+            self._load_voices()
+            return
         try:
             _, voices = ensure_engine()
         except Exception:
@@ -1356,8 +1366,17 @@ class KokoroQtWindow(QMainWindow):
         self._set_status(self._t("language_saved"))
 
     def _on_model(self, value: str) -> None:
-        if get_tts_engine() != "kokoro":
+        if get_tts_engine() == "piper":
+            selected = value.strip()
+            if selected not in get_available_piper_models():
+                return
+            settings = load_settings()
+            settings["piper_model"] = selected
+            save_settings(settings)
+            self.model_info.setText(self._t("model_switched", version=selected))
+            self._load_voices()
             return
+
         version = value.replace("Kokoro ", "")
         settings = load_settings()
         settings["model_version"] = version
@@ -1384,9 +1403,10 @@ class KokoroQtWindow(QMainWindow):
             self.model_combo.setEnabled(True)
             self.model_info.setText("")
         else:
-            self.model_combo.addItem(self._t("engine_piper_model_name"))
-            self.model_combo.setCurrentIndex(0)
-            self.model_combo.setEnabled(False)
+            piper_models = get_available_piper_models()
+            self.model_combo.addItems(piper_models)
+            self.model_combo.setCurrentText(get_piper_model())
+            self.model_combo.setEnabled(True)
             self.model_info.setText(self._t("engine_piper_model_info"))
         self.model_combo.blockSignals(False)
 
@@ -1401,7 +1421,17 @@ class KokoroQtWindow(QMainWindow):
     def _on_check_update(self) -> None:
         self.update_label.setText("…")
         QApplication.processEvents()
-        self.update_label.setText(check_updates_message())
+        details = check_updates_details()
+        message = str(details.get("message") or check_updates_message())
+        self.update_label.setText(message)
+        if bool(details.get("update_available")):
+            tag = str(details.get("tag") or "")
+            release_notes = str(details.get("release_notes") or "").strip()
+            if not release_notes:
+                release_notes = self._t("release_notes_empty")
+            title = self._t("release_notes_title", tag=tag)
+            intro = self._t("release_notes_intro", tag=tag)
+            QMessageBox.information(self, title, f"{intro}\n\n{release_notes}")
 
     def _on_auto_update(self) -> None:
         self.auto_update_btn.setEnabled(False)
@@ -1475,6 +1505,7 @@ class KokoroQtWindow(QMainWindow):
         self.engine_combo.blockSignals(False)
         cfg = load_settings()
         cfg["tts_engine"] = "kokoro"
+        cfg["piper_model"] = DEFAULT_PIPER_MODEL
         save_settings(cfg)
         self._refresh_engine_ui_state()
 
