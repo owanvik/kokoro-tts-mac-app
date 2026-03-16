@@ -35,6 +35,15 @@ Ved ny versjon kan brukeren trykke **Oppdater nå**:
 - installasjonsvindu åpnes automatisk
 - bruker drar ny app til `Applications`
 
+Når appen finner en ny versjon via **Sjekk oppdatering**, vises release notes i appen før oppdatering.
+
+## TTS-motorer (Kokoro og Piper)
+
+- **Kokoro** er standard (default) motor.
+- **Piper** kan velges i Innstillinger.
+- Når Piper er valgt får du en egen modell-dropdown (klargjort for flere Piper-modeller).
+- Piper-runtime forsøkes løst automatisk (lokal `piper`, `python -m piper`, eller nedlasting av macOS-runtime ved behov).
+
 ## Publisere ny versjon
 
 1. Oppdater `VERSION` (f.eks. `0.7.2`)
