@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import urllib.parse
 import urllib.request
 from urllib.error import URLError, HTTPError
 from datetime import datetime
@@ -236,26 +237,46 @@ def _normalize_release_notes(body: str) -> str:
         return notes[:max_len].rstrip() + "\n\n…"
     return notes
 
-def get_latest_release_details() -> tuple[str, str, str, str]:
+def _get_latest_release_via_redirect() -> tuple[str, str, str]:
     req = urllib.request.Request(
-        LATEST_RELEASE_API,
-        headers={"Accept": "application/vnd.github+json", "User-Agent": "KokoroTTS"},
+        LATEST_RELEASE_URL,
+        headers={"User-Agent": "KokoroTTS"},
     )
-    with urllib.request.urlopen(req, timeout=6) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
-    dmg_url = ""
-    for asset in data.get("assets", []):
-        name = (asset.get("name") or "").lower()
-        if name.endswith(".dmg"):
-            dmg_url = asset.get("browser_download_url", "")
-            break
-    release_notes = _normalize_release_notes(str(data.get("body") or ""))
-    return (
-        data.get("tag_name", ""),
-        data.get("html_url", LATEST_RELEASE_URL),
-        dmg_url,
-        release_notes,
-    )
+    with urllib.request.urlopen(req, timeout=8) as resp:
+        final_url = resp.geturl()
+
+    match = re.search(r"/releases/tag/([^/?#]+)", final_url)
+    if not match:
+        raise RuntimeError("Could not resolve latest release tag")
+
+    tag = urllib.parse.unquote(match.group(1))
+    dmg_url = f"https://github.com/{GITHUB_REPO}/releases/download/{tag}/KokoroTTS-mac-arm64.dmg"
+    return tag, final_url, dmg_url
+
+def get_latest_release_details() -> tuple[str, str, str, str]:
+    try:
+        req = urllib.request.Request(
+            LATEST_RELEASE_API,
+            headers={"Accept": "application/vnd.github+json", "User-Agent": "KokoroTTS"},
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        dmg_url = ""
+        for asset in data.get("assets", []):
+            name = (asset.get("name") or "").lower()
+            if name.endswith(".dmg"):
+                dmg_url = asset.get("browser_download_url", "")
+                break
+        release_notes = _normalize_release_notes(str(data.get("body") or ""))
+        return (
+            data.get("tag_name", ""),
+            data.get("html_url", LATEST_RELEASE_URL),
+            dmg_url,
+            release_notes,
+        )
+    except Exception:
+        tag, html_url, dmg_url = _get_latest_release_via_redirect()
+        return tag, html_url, dmg_url, ""
 
 def get_latest_release() -> tuple[str, str, str]:
     tag, url, dmg_url, _ = get_latest_release_details()
