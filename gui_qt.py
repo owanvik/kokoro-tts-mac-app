@@ -778,6 +778,7 @@ class KokoroQtWindow(QMainWindow):
         self.model_combo.currentTextChanged.connect(self._on_model)
         self.model_info = QLabel("")
         self.model_info.setWordWrap(True)
+        model_layout.addWidget(QLabel(self._t("model_version")))
         model_layout.addWidget(self.model_combo)
         model_layout.addWidget(self.model_info)
         content_layout.addWidget(model_card)
@@ -1375,11 +1376,19 @@ class KokoroQtWindow(QMainWindow):
     def _refresh_engine_ui_state(self) -> None:
         engine = get_tts_engine()
         kokoro_selected = engine == "kokoro"
-        self.model_combo.setEnabled(kokoro_selected)
+        self.model_combo.blockSignals(True)
+        self.model_combo.clear()
         if kokoro_selected:
+            self.model_combo.addItems([f"Kokoro {k}" for k in MODEL_REGISTRY])
+            self.model_combo.setCurrentText(f"Kokoro {get_model_version()}")
+            self.model_combo.setEnabled(True)
             self.model_info.setText("")
         else:
+            self.model_combo.addItem(self._t("engine_piper_model_name"))
+            self.model_combo.setCurrentIndex(0)
+            self.model_combo.setEnabled(False)
             self.model_info.setText(self._t("engine_piper_model_info"))
+        self.model_combo.blockSignals(False)
 
     def _on_tts_engine_change(self, _index: int) -> None:
         engine = self.engine_combo.currentData()
