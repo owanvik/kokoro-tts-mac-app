@@ -43,7 +43,7 @@
   "preset_alert": "Varsel",
   "preset_narration": "Fortelling",
   "preset_direct": "Direkte",
-  "update_available": "Oppdatering tilgjengelig: {tag} (du har {version}). Klar for automatisk oppdatering.",
+  "update_available": "Oppdatering tilgjengelig: {tag} (du har {version}). Klar for oppdatering.",
   "release_notes_title": "Hva er nytt i {tag}",
   "release_notes_section": "Endringslogg",
   "release_notes_intro": "Ny versjon er tilgjengelig. Dette kommer i oppdateringen:",

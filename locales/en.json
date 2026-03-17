@@ -43,7 +43,7 @@
   "preset_alert": "Alert",
   "preset_narration": "Narration",
   "preset_direct": "Direct",
-  "update_available": "Update available: {tag} (you have {version}). Ready for automatic update.",
+  "update_available": "Update available: {tag} (you have {version}). Ready for update.",
   "release_notes_title": "What's new in {tag}",
   "release_notes_section": "Changelog",
   "release_notes_intro": "A new version is available. Included in this update:",

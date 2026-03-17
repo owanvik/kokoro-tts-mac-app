@@ -1577,10 +1577,9 @@ class KokoroQtWindow(QMainWindow):
             release_notes = str(details.get("release_notes") or "").strip()
             if not release_notes:
                 release_notes = self._t("release_notes_empty")
-            intro = self._t("release_notes_intro", tag=tag)
             self.release_notes_title.setText(self._t("release_notes_title", tag=tag))
             self.release_notes_title.setVisible(True)
-            self.release_notes_view.setPlainText(f"{intro}\n\n{release_notes}")
+            self.release_notes_view.setPlainText(release_notes)
             self.release_notes_view.setVisible(True)
         else:
             self.release_notes_title.setVisible(False)
