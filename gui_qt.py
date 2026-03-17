@@ -72,6 +72,7 @@ from core import (
     synthesize,
     toggle_favorite,
     tr,
+    piper_voices_for_lang,
     voices_for_lang,
 )
 
@@ -1280,7 +1281,7 @@ class KokoroQtWindow(QMainWindow):
             return
 
         if get_tts_engine() == "piper":
-            filtered = voices
+            filtered = piper_voices_for_lang(self._current_lang_code(), voices)
         else:
             filtered = voices_for_lang(self._current_lang_code(), voices, self.show_all_chk.isChecked())
         self._voices = filtered

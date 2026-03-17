@@ -114,6 +114,270 @@ PIPER_MODEL_REGISTRY: dict[str, dict] = {
             ),
         ],
     },
+    "en_US-amy-medium": {
+        "lang": "en-us",
+        "model": "en_US-amy-medium.onnx",
+        "config": "en_US-amy-medium.onnx.json",
+        "urls": [
+            (
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/medium/en_US-amy-medium.onnx",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/medium/en_US-amy-medium.onnx.json",
+            ),
+        ],
+    },
+    "en_US-joe-medium": {
+        "lang": "en-us",
+        "model": "en_US-joe-medium.onnx",
+        "config": "en_US-joe-medium.onnx.json",
+        "urls": [
+            (
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/joe/medium/en_US-joe-medium.onnx",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/joe/medium/en_US-joe-medium.onnx.json",
+            ),
+        ],
+    },
+    "en_US-kristin-medium": {
+        "lang": "en-us",
+        "model": "en_US-kristin-medium.onnx",
+        "config": "en_US-kristin-medium.onnx.json",
+        "urls": [
+            (
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/kristin/medium/en_US-kristin-medium.onnx",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/kristin/medium/en_US-kristin-medium.onnx.json",
+            ),
+        ],
+    },
+    "en_US-lessac-medium": {
+        "lang": "en-us",
+        "model": "en_US-lessac-medium.onnx",
+        "config": "en_US-lessac-medium.onnx.json",
+        "urls": [
+            (
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json",
+            ),
+        ],
+    },
+    "en_GB-alan-medium": {
+        "lang": "en-gb",
+        "model": "en_GB-alan-medium.onnx",
+        "config": "en_GB-alan-medium.onnx.json",
+        "urls": [
+            (
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/medium/en_GB-alan-medium.onnx",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/medium/en_GB-alan-medium.onnx.json",
+            ),
+        ],
+    },
+    "en_GB-alba-medium": {
+        "lang": "en-gb",
+        "model": "en_GB-alba-medium.onnx",
+        "config": "en_GB-alba-medium.onnx.json",
+        "urls": [
+            (
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alba/medium/en_GB-alba-medium.onnx",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alba/medium/en_GB-alba-medium.onnx.json",
+            ),
+        ],
+    },
+    "en_GB-jenny_dioco-medium": {
+        "lang": "en-gb",
+        "model": "en_GB-jenny_dioco-medium.onnx",
+        "config": "en_GB-jenny_dioco-medium.onnx.json",
+        "urls": [
+            (
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/jenny_dioco/medium/en_GB-jenny_dioco-medium.onnx",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/jenny_dioco/medium/en_GB-jenny_dioco-medium.onnx.json",
+            ),
+        ],
+    },
+    "en_GB-semaine-medium": {
+        "lang": "en-gb",
+        "model": "en_GB-semaine-medium.onnx",
+        "config": "en_GB-semaine-medium.onnx.json",
+        "urls": [
+            (
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/semaine/medium/en_GB-semaine-medium.onnx",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/semaine/medium/en_GB-semaine-medium.onnx.json",
+            ),
+        ],
+    },
+    "de_DE-thorsten-medium": {
+        "lang": "de",
+        "model": "de_DE-thorsten-medium.onnx",
+        "config": "de_DE-thorsten-medium.onnx.json",
+        "urls": [
+            (
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx.json",
+            ),
+        ],
+    },
+    "de_DE-mls-medium": {
+        "lang": "de",
+        "model": "de_DE-mls-medium.onnx",
+        "config": "de_DE-mls-medium.onnx.json",
+        "urls": [
+            (
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/mls/medium/de_DE-mls-medium.onnx",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/mls/medium/de_DE-mls-medium.onnx.json",
+            ),
+        ],
+    },
+    "de_DE-thorsten_emotional-medium": {
+        "lang": "de",
+        "model": "de_DE-thorsten_emotional-medium.onnx",
+        "config": "de_DE-thorsten_emotional-medium.onnx.json",
+        "urls": [
+            (
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten_emotional/medium/de_DE-thorsten_emotional-medium.onnx",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten_emotional/medium/de_DE-thorsten_emotional-medium.onnx.json",
+            ),
+        ],
+    },
+    "fr_FR-tom-medium": {
+        "lang": "fr-fr",
+        "model": "fr_FR-tom-medium.onnx",
+        "config": "fr_FR-tom-medium.onnx.json",
+        "urls": [
+            (
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/tom/medium/fr_FR-tom-medium.onnx",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/tom/medium/fr_FR-tom-medium.onnx.json",
+            ),
+        ],
+    },
+    "fr_FR-mls-medium": {
+        "lang": "fr-fr",
+        "model": "fr_FR-mls-medium.onnx",
+        "config": "fr_FR-mls-medium.onnx.json",
+        "urls": [
+            (
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/mls/medium/fr_FR-mls-medium.onnx",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/mls/medium/fr_FR-mls-medium.onnx.json",
+            ),
+        ],
+    },
+    "fr_FR-siwis-medium": {
+        "lang": "fr-fr",
+        "model": "fr_FR-siwis-medium.onnx",
+        "config": "fr_FR-siwis-medium.onnx.json",
+        "urls": [
+            (
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/siwis/medium/fr_FR-siwis-medium.onnx",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/siwis/medium/fr_FR-siwis-medium.onnx.json",
+            ),
+        ],
+    },
+    "fr_FR-upmc-medium": {
+        "lang": "fr-fr",
+        "model": "fr_FR-upmc-medium.onnx",
+        "config": "fr_FR-upmc-medium.onnx.json",
+        "urls": [
+            (
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/upmc/medium/fr_FR-upmc-medium.onnx",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/upmc/medium/fr_FR-upmc-medium.onnx.json",
+            ),
+        ],
+    },
+    "es_ES-davefx-medium": {
+        "lang": "es",
+        "model": "es_ES-davefx-medium.onnx",
+        "config": "es_ES-davefx-medium.onnx.json",
+        "urls": [
+            (
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/davefx/medium/es_ES-davefx-medium.onnx",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/davefx/medium/es_ES-davefx-medium.onnx.json",
+            ),
+        ],
+    },
+    "es_ES-sharvard-medium": {
+        "lang": "es",
+        "model": "es_ES-sharvard-medium.onnx",
+        "config": "es_ES-sharvard-medium.onnx.json",
+        "urls": [
+            (
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/sharvard/medium/es_ES-sharvard-medium.onnx",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/sharvard/medium/es_ES-sharvard-medium.onnx.json",
+            ),
+        ],
+    },
+    "it_IT-paola-medium": {
+        "lang": "it",
+        "model": "it_IT-paola-medium.onnx",
+        "config": "it_IT-paola-medium.onnx.json",
+        "urls": [
+            (
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/it/it_IT/paola/medium/it_IT-paola-medium.onnx",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/it/it_IT/paola/medium/it_IT-paola-medium.onnx.json",
+            ),
+        ],
+    },
+    "pt_BR-faber-medium": {
+        "lang": "pt-br",
+        "model": "pt_BR-faber-medium.onnx",
+        "config": "pt_BR-faber-medium.onnx.json",
+        "urls": [
+            (
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/pt/pt_BR/faber/medium/pt_BR-faber-medium.onnx",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/pt/pt_BR/faber/medium/pt_BR-faber-medium.onnx.json",
+            ),
+        ],
+    },
+    "pt_BR-cadu-medium": {
+        "lang": "pt-br",
+        "model": "pt_BR-cadu-medium.onnx",
+        "config": "pt_BR-cadu-medium.onnx.json",
+        "urls": [
+            (
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/pt/pt_BR/cadu/medium/pt_BR-cadu-medium.onnx",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/pt/pt_BR/cadu/medium/pt_BR-cadu-medium.onnx.json",
+            ),
+        ],
+    },
+    "pt_BR-jeff-medium": {
+        "lang": "pt-br",
+        "model": "pt_BR-jeff-medium.onnx",
+        "config": "pt_BR-jeff-medium.onnx.json",
+        "urls": [
+            (
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/pt/pt_BR/jeff/medium/pt_BR-jeff-medium.onnx",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/pt/pt_BR/jeff/medium/pt_BR-jeff-medium.onnx.json",
+            ),
+        ],
+    },
+    "zh_CN-huayan-medium": {
+        "lang": "cmn",
+        "model": "zh_CN-huayan-medium.onnx",
+        "config": "zh_CN-huayan-medium.onnx.json",
+        "urls": [
+            (
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/zh/zh_CN/huayan/medium/zh_CN-huayan-medium.onnx",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/zh/zh_CN/huayan/medium/zh_CN-huayan-medium.onnx.json",
+            ),
+        ],
+    },
+    "zh_CN-chaowen-medium": {
+        "lang": "cmn",
+        "model": "zh_CN-chaowen-medium.onnx",
+        "config": "zh_CN-chaowen-medium.onnx.json",
+        "urls": [
+            (
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/zh/zh_CN/chaowen/medium/zh_CN-chaowen-medium.onnx",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/zh/zh_CN/chaowen/medium/zh_CN-chaowen-medium.onnx.json",
+            ),
+        ],
+    },
+    "zh_CN-xiao_ya-medium": {
+        "lang": "cmn",
+        "model": "zh_CN-xiao_ya-medium.onnx",
+        "config": "zh_CN-xiao_ya-medium.onnx.json",
+        "urls": [
+            (
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/zh/zh_CN/xiao_ya/medium/zh_CN-xiao_ya-medium.onnx",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/zh/zh_CN/xiao_ya/medium/zh_CN-xiao_ya-medium.onnx.json",
+            ),
+        ],
+    },
 }
 
 APP_VERSION = f"v{(BASE_DIR / 'VERSION').read_text(encoding='utf-8').strip()}"
@@ -178,6 +442,11 @@ def voices_for_lang(lang: str, all_voices: list[str], show_all: bool = False) ->
         return all_voices
     matching = [v for v in all_voices if VOICE_LANG_MAP.get(v.split("_")[0]) == lang]
     return matching if matching else all_voices
+
+def piper_voices_for_lang(lang: str, all_voices: list[str]) -> list[str]:
+    matching = [v for v in all_voices if (PIPER_MODEL_REGISTRY.get(v, {}).get("lang") == lang)]
+    remaining = [v for v in all_voices if v not in matching]
+    return matching + remaining if matching else all_voices
 
 # ── Settings / i18n ──────────────────────────────────────────────────
 def load_settings() -> dict:
