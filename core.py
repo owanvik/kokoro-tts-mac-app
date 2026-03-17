@@ -70,14 +70,47 @@ PIPER_MODEL_REGISTRY: dict[str, dict] = {
             ),
         ],
     },
-    "no_NO-nvcc-medium": {
-        "lang": "nb",
-        "model": "no_NO-nvcc-medium.onnx",
-        "config": "no_NO-nvcc-medium.onnx.json",
+    "sv_SE-alma-medium": {
+        "lang": "sv",
+        "model": "sv_SE-alma-medium.onnx",
+        "config": "sv_SE-alma-medium.onnx.json",
         "urls": [
             (
-                "https://huggingface.co/rhasspy/piper-voices/resolve/main/no/no_NO/nvcc/medium/no_NO-nvcc-medium.onnx",
-                "https://huggingface.co/rhasspy/piper-voices/resolve/main/no/no_NO/nvcc/medium/no_NO-nvcc-medium.onnx.json",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/sv/sv_SE/alma/medium/sv_SE-alma-medium.onnx",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/sv/sv_SE/alma/medium/sv_SE-alma-medium.onnx.json",
+            ),
+        ],
+    },
+    "sv_SE-lisa-medium": {
+        "lang": "sv",
+        "model": "sv_SE-lisa-medium.onnx",
+        "config": "sv_SE-lisa-medium.onnx.json",
+        "urls": [
+            (
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/sv/sv_SE/lisa/medium/sv_SE-lisa-medium.onnx",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/sv/sv_SE/lisa/medium/sv_SE-lisa-medium.onnx.json",
+            ),
+        ],
+    },
+    "sv_SE-nst-medium": {
+        "lang": "sv",
+        "model": "sv_SE-nst-medium.onnx",
+        "config": "sv_SE-nst-medium.onnx.json",
+        "urls": [
+            (
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/sv/sv_SE/nst/medium/sv_SE-nst-medium.onnx",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/sv/sv_SE/nst/medium/sv_SE-nst-medium.onnx.json",
+            ),
+        ],
+    },
+    "da_DK-talesyntese-medium": {
+        "lang": "da",
+        "model": "da_DK-talesyntese-medium.onnx",
+        "config": "da_DK-talesyntese-medium.onnx.json",
+        "urls": [
+            (
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/da/da_DK/talesyntese/medium/da_DK-talesyntese-medium.onnx",
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/da/da_DK/talesyntese/medium/da_DK-talesyntese-medium.onnx.json",
             ),
         ],
     },
@@ -883,7 +916,10 @@ def _synthesize_with_piper(text: str, voice: str, speed: float) -> tuple[np.ndar
 def ensure_engine(version: str | None = None) -> tuple[Kokoro, list[str]]:
     global engine, voices, _current_model_version
     if get_tts_engine() == "piper":
-        return None, [get_piper_model()]
+        available = get_available_piper_models()
+        preferred = get_piper_model()
+        ordered = [preferred] + [model for model in available if model != preferred]
+        return None, ordered
     version = version or get_model_version()
     if engine is None or _current_model_version != version:
         model_path, voices_path = _download_model(version)

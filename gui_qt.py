@@ -1271,6 +1271,7 @@ class KokoroQtWindow(QMainWindow):
     def _load_voices(self) -> None:
         self._set_status(self._t("loading_model"))
         QApplication.processEvents()
+        current_voice = self.voice_combo.currentText().strip()
         try:
             _, voices = ensure_engine()
         except Exception as exc:
@@ -1285,7 +1286,11 @@ class KokoroQtWindow(QMainWindow):
         self._voices = filtered
         self.voice_combo.clear()
         self.voice_combo.addItems(filtered)
-        if "af_heart" in filtered:
+        if current_voice and current_voice in filtered:
+            self.voice_combo.setCurrentText(current_voice)
+        elif get_tts_engine() == "piper" and get_piper_model() in filtered:
+            self.voice_combo.setCurrentText(get_piper_model())
+        elif "af_heart" in filtered:
             self.voice_combo.setCurrentText("af_heart")
         self._set_status(self._t("up_to_date", version=APP_VERSION))
 
