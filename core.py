@@ -443,10 +443,11 @@ def voices_for_lang(lang: str, all_voices: list[str], show_all: bool = False) ->
     matching = [v for v in all_voices if VOICE_LANG_MAP.get(v.split("_")[0]) == lang]
     return matching if matching else all_voices
 
-def piper_voices_for_lang(lang: str, all_voices: list[str]) -> list[str]:
+def piper_voices_for_lang(lang: str, all_voices: list[str], show_all: bool = False) -> list[str]:
+    if show_all:
+        return all_voices
     matching = [v for v in all_voices if (PIPER_MODEL_REGISTRY.get(v, {}).get("lang") == lang)]
-    remaining = [v for v in all_voices if v not in matching]
-    return matching + remaining if matching else all_voices
+    return matching if matching else all_voices
 
 # ── Settings / i18n ──────────────────────────────────────────────────
 def load_settings() -> dict:

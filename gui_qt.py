@@ -676,10 +676,12 @@ class KokoroQtWindow(QMainWindow):
 
         self.format_combo = NoWheelComboBox()
         self.format_combo.setObjectName("inputField")
+        self.format_combo.setEditable(False)
         self.format_combo.addItems(["wav", "mp3"])
 
         self.bitrate_combo = NoWheelComboBox()
         self.bitrate_combo.setObjectName("inputField")
+        self.bitrate_combo.setEditable(False)
         self.bitrate_combo.addItems(["96", "128", "160", "192", "256", "320"])
         self.bitrate_combo.setCurrentText("192")
 
@@ -1281,7 +1283,7 @@ class KokoroQtWindow(QMainWindow):
             return
 
         if get_tts_engine() == "piper":
-            filtered = piper_voices_for_lang(self._current_lang_code(), voices)
+            filtered = piper_voices_for_lang(self._current_lang_code(), voices, self.show_all_chk.isChecked())
         else:
             filtered = voices_for_lang(self._current_lang_code(), voices, self.show_all_chk.isChecked())
         self._voices = filtered

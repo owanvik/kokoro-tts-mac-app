@@ -618,10 +618,38 @@ class KokoroApp(ctk.CTk):
             r2, text=self._t("format"), text_color=TEXT_SEC,
             font=ctk.CTkFont(size=11),
         ).grid(row=0, column=2, sticky="w")
-        self._format_var = ctk.StringVar(value="wav")
+        settings = load_settings()
+        selected_format = str(settings.get("output_format", "wav")).strip().lower()
+        if selected_format not in {"wav", "mp3"}:
+            selected_format = "wav"
+        bitrate_options = ["96", "128", "160", "192", "256", "320"]
+        selected_bitrate = str(settings.get("mp3_bitrate_kbps", "192")).strip()
+        if selected_bitrate not in bitrate_options:
+            selected_bitrate = "192"
+
+        self._format_var = ctk.StringVar(value=selected_format)
         ctk.CTkOptionMenu(
-            r2, variable=self._format_var, values=["wav", "mp3"], **opt_kw,
+            r2,
+            variable=self._format_var,
+            values=["wav", "mp3"],
+            command=lambda _v: self._on_audio_settings_change(),
+            **opt_kw,
         ).grid(row=1, column=2, sticky="ew", padx=(HALF, 0))
+
+        ctk.CTkLabel(
+            r2, text=self._t("bitrate"), text_color=TEXT_SEC,
+            font=ctk.CTkFont(size=11),
+        ).grid(row=2, column=2, sticky="w", pady=(6, 0))
+        self._bitrate_var = ctk.StringVar(value=selected_bitrate)
+        self._bitrate_menu = ctk.CTkOptionMenu(
+            r2,
+            variable=self._bitrate_var,
+            values=bitrate_options,
+            command=lambda _v: self._on_audio_settings_change(),
+            **opt_kw,
+        )
+        self._bitrate_menu.grid(row=3, column=2, sticky="ew", padx=(HALF, 0))
+        self._update_mp3_bitrate_state()
 
         # ── Generate button ──────────────────────────────────────────
         self._gen_btn = ctk.CTkButton(
@@ -799,6 +827,17 @@ class KokoroApp(ctk.CTk):
         self._gain_var.set(gain)
         self._gain_lbl.configure(text=f"{gain:+.1f}")
 
+    def _update_mp3_bitrate_state(self):
+        is_mp3 = self._format_var.get().strip().lower() == "mp3"
+        self._bitrate_menu.configure(state="normal" if is_mp3 else "disabled")
+
+    def _on_audio_settings_change(self):
+        self._update_mp3_bitrate_state()
+        s = load_settings()
+        s["output_format"] = self._format_var.get().strip().lower()
+        s["mp3_bitrate_kbps"] = int(self._bitrate_var.get())
+        save_settings(s)
+
     def _on_generate(self):
         text = self._text.get("1.0", "end").strip()
         if not text:
@@ -820,6 +859,7 @@ class KokoroApp(ctk.CTk):
                     style=self._style_var.get(),
                     gain_db=self._gain_var.get(),
                     output_format=self._format_var.get(),
+                    mp3_bitrate_kbps=int(self._bitrate_var.get()),
                 )
                 from datetime import datetime
 
