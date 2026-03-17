@@ -15,7 +15,7 @@ import numpy as np
 import sounddevice as sd
 import soundfile as sf
 from PySide6.QtCore import Qt, QTimer, QLibraryInfo
-from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
+from PySide6.QtGui import QAction, QColor, QPainter, QPen, QPixmap, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -415,12 +415,34 @@ class KokoroQtWindow(QMainWindow):
         self._status_labels: list[QLabel] = []
 
         self._build_ui()
+        self._setup_app_menu()
         self._configure_tab_navigation()
         self._apply_styles()
         self._init_engine()
 
     def _t(self, key: str, **kw) -> str:
         return tr(key, self._L, **kw)
+
+    def _setup_app_menu(self) -> None:
+        menu = self.menuBar().addMenu(self._t("app_menu_title"))
+
+        self.settings_action = QAction(self._t("app_menu_settings"), self)
+        self.settings_action.setShortcut(QKeySequence("Ctrl+,"))
+        self.settings_action.setMenuRole(QAction.PreferencesRole)
+        self.settings_action.triggered.connect(self._show_settings_page)
+        menu.addAction(self.settings_action)
+
+        self.about_action = QAction(self._t("app_menu_about"), self)
+        self.about_action.setMenuRole(QAction.AboutRole)
+        self.about_action.triggered.connect(self._show_about_dialog)
+        menu.addAction(self.about_action)
+
+    def _show_about_dialog(self) -> None:
+        QMessageBox.about(
+            self,
+            self._t("app_menu_about"),
+            self._t("about_dialog_text", version=APP_DISPLAY_VERSION),
+        )
 
     def _set_status(self, msg: str) -> None:
         self._status_text = msg

@@ -1,5 +1,9 @@
 {
   "title": "Kokoro TTS",
+  "app_menu_title": "KokoroTTS",
+  "app_menu_settings": "Settings…",
+  "app_menu_about": "About KokoroTTS",
+  "about_dialog_text": "KokoroTTS\n\nVersion: {version}\n\nLocal macOS TTS app with Kokoro and Piper.",
   "tab_generate": "Generate",
   "tab_settings": "Settings",
   "back": "Back",
