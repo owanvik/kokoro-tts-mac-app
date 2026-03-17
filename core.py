@@ -677,6 +677,7 @@ engine: Kokoro | None = None
 voices: list[str] = []
 _current_model_version: str | None = None
 _piper_voice_cache: dict[str, object] = {}
+_ALLOW_INPROCESS_PIPER = os.environ.get("KOKORO_ALLOW_INPROCESS_PIPER", "").strip() == "1"
 
 def _piper_runtime_dir() -> Path:
     d = APP_DIR / "runtime" / "piper"
@@ -808,11 +809,13 @@ def _synthesize_with_piper(text: str, voice: str, speed: float) -> tuple[np.ndar
     voice_id = voice if voice in PIPER_MODEL_REGISTRY else get_piper_model()
     python_error: str | None = None
 
-    if PiperVoice is not None and SynthesisConfig is not None:
+    if _ALLOW_INPROCESS_PIPER and PiperVoice is not None and SynthesisConfig is not None:
         try:
             return _synthesize_with_piper_python(text=text, voice_id=voice_id, speed=speed)
         except Exception as exc:
             python_error = str(exc)
+    elif not _ALLOW_INPROCESS_PIPER:
+        python_error = "in-process Piper disabled for stability"
 
     piper_cmd = _resolve_piper_command()
     if piper_cmd is None:
@@ -833,7 +836,7 @@ def _synthesize_with_piper(text: str, voice: str, speed: float) -> tuple[np.ndar
         "--length_scale", f"{length_scale:.3f}",
     ]
     try:
-        subprocess.run(
+        completed = subprocess.run(
             cmd,
             input=text.encode("utf-8"),
             stdout=subprocess.DEVNULL,
@@ -841,6 +844,9 @@ def _synthesize_with_piper(text: str, voice: str, speed: float) -> tuple[np.ndar
             check=True,
             timeout=120,
         )
+        if not tmp_wav.exists() or tmp_wav.stat().st_size == 0:
+            err = completed.stderr.decode(errors="replace").strip()
+            raise RuntimeError(tr("piper_synthesis_failed", error=err or "piper produced no output audio"))
         audio, sample_rate = sf.read(tmp_wav, dtype="float32")
         if isinstance(audio, np.ndarray) and audio.ndim > 1:
             audio = audio.mean(axis=1)
@@ -899,8 +905,32 @@ def apply_preset(preset: str) -> tuple[str, float, float]:
     }
     return presets.get(preset, presets["neutral"])
 
+def _encode_mp3_with_ffmpeg(wav_path: Path, out_path: Path, bitrate_kbps: int) -> bool:
+    ffmpeg_bin = shutil.which("ffmpeg")
+    if not ffmpeg_bin:
+        return False
+    command = [
+        ffmpeg_bin,
+        "-y",
+        "-loglevel",
+        "error",
+        "-i",
+        str(wav_path),
+        "-codec:a",
+        "libmp3lame",
+        "-b:a",
+        f"{int(bitrate_kbps)}k",
+        str(out_path),
+    ]
+    try:
+        subprocess.run(command, check=True, capture_output=True, text=True)
+    except Exception:
+        return False
+    return out_path.exists() and out_path.stat().st_size > 0
+
 def synthesize(text: str, voice: str, speed: float, lang: str,
-               style: str, gain_db: float, output_format: str) -> tuple[str, str]:
+               style: str, gain_db: float, output_format: str,
+               mp3_bitrate_kbps: int | None = None) -> tuple[str, str]:
     """Run TTS. Returns (output_path, info_message)."""
     if not text or not text.strip():
         raise ValueError(tr("error_empty_text"))
@@ -925,10 +955,32 @@ def synthesize(text: str, voice: str, speed: float, lang: str,
     ext = "mp3" if output_format.lower() == "mp3" else "wav"
     filename = f"{voice_safe}_{snippet_safe}_{timestamp}.{ext}"
     out_path = OUT_DIR / filename
-    sf.write(out_path, audio, sample_rate)
+
+    bitrate_info = tr("bitrate_na")
+    if ext == "mp3":
+        selected_bitrate = int(mp3_bitrate_kbps) if mp3_bitrate_kbps else 0
+        if selected_bitrate > 0:
+            with tempfile.NamedTemporaryFile(suffix=".wav", dir=OUT_DIR, delete=False) as tmp:
+                tmp_wav = Path(tmp.name)
+            try:
+                sf.write(tmp_wav, audio, sample_rate, format="WAV")
+                encoded = _encode_mp3_with_ffmpeg(tmp_wav, out_path, selected_bitrate)
+            finally:
+                tmp_wav.unlink(missing_ok=True)
+
+            if encoded:
+                bitrate_info = f"{selected_bitrate} kbps"
+            else:
+                sf.write(out_path, audio, sample_rate)
+                bitrate_info = tr("bitrate_auto")
+        else:
+            sf.write(out_path, audio, sample_rate)
+            bitrate_info = tr("bitrate_auto")
+    else:
+        sf.write(out_path, audio, sample_rate)
 
     info = tr("synth_done", voice=voice, lang=lang, style=style,
-              speed=f"{styled_speed:.2f}", gain=f"{gain_db:+.1f}", format=ext.upper())
+              speed=f"{styled_speed:.2f}", gain=f"{gain_db:+.1f}", format=ext.upper(), bitrate=bitrate_info)
     if engine_name == "piper":
         info = f"{info} | engine=Piper"
     return str(out_path), info

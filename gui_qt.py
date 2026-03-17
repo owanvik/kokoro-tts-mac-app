@@ -677,6 +677,11 @@ class KokoroQtWindow(QMainWindow):
         self.format_combo.setObjectName("inputField")
         self.format_combo.addItems(["wav", "mp3"])
 
+        self.bitrate_combo = NoWheelComboBox()
+        self.bitrate_combo.setObjectName("inputField")
+        self.bitrate_combo.addItems(["96", "128", "160", "192", "256", "320"])
+        self.bitrate_combo.setCurrentText("192")
+
         audio_grid.addWidget(QLabel(self._t("language_code")), 0, 0)
         audio_grid.addWidget(QLabel(self._t("style")), 0, 1)
         audio_grid.addWidget(QLabel(self._t("preset")), 0, 2)
@@ -690,6 +695,21 @@ class KokoroQtWindow(QMainWindow):
         audio_grid.addWidget(self.speed_spin, 3, 0)
         audio_grid.addWidget(self.gain_spin, 3, 1)
         audio_grid.addWidget(self.format_combo, 3, 2)
+        audio_grid.addWidget(QLabel(self._t("bitrate")), 4, 2)
+        audio_grid.addWidget(self.bitrate_combo, 5, 2)
+
+        settings = load_settings()
+        selected_format = str(settings.get("output_format", "wav")).strip().lower()
+        if selected_format not in {"wav", "mp3"}:
+            selected_format = "wav"
+        self.format_combo.setCurrentText(selected_format)
+        selected_bitrate = str(settings.get("mp3_bitrate_kbps", "192")).strip()
+        if selected_bitrate in {"96", "128", "160", "192", "256", "320"}:
+            self.bitrate_combo.setCurrentText(selected_bitrate)
+
+        self.format_combo.currentTextChanged.connect(self._on_audio_setting_change)
+        self.bitrate_combo.currentTextChanged.connect(self._on_audio_setting_change)
+        self._update_mp3_bitrate_state()
 
         audio_body_layout.addLayout(audio_grid)
 
@@ -704,7 +724,6 @@ class KokoroQtWindow(QMainWindow):
         audio_actions.addWidget(self.restore_audio_defaults_btn)
         audio_body_layout.addLayout(audio_actions)
 
-        settings = load_settings()
         audio_open = bool(settings.get("audio_settings_open", False))
         self.audio_settings_body.setVisible(audio_open)
         self.audio_toggle_btn.setChecked(audio_open)
@@ -903,7 +922,8 @@ class KokoroQtWindow(QMainWindow):
         QWidget.setTabOrder(self.preset_combo, self.speed_spin)
         QWidget.setTabOrder(self.speed_spin, self.gain_spin)
         QWidget.setTabOrder(self.gain_spin, self.format_combo)
-        QWidget.setTabOrder(self.format_combo, self.restore_audio_defaults_btn)
+        QWidget.setTabOrder(self.format_combo, self.bitrate_combo)
+        QWidget.setTabOrder(self.bitrate_combo, self.restore_audio_defaults_btn)
         QWidget.setTabOrder(self.restore_audio_defaults_btn, self.generate_btn)
         QWidget.setTabOrder(self.generate_btn, self.player.position_slider)
         QWidget.setTabOrder(self.player.position_slider, self.player.rewind_btn)
@@ -1313,6 +1333,17 @@ class KokoroQtWindow(QMainWindow):
         self.speed_spin.setValue(speed)
         self.gain_spin.setValue(gain)
 
+    def _update_mp3_bitrate_state(self) -> None:
+        is_mp3 = self.format_combo.currentText().strip().lower() == "mp3"
+        self.bitrate_combo.setEnabled(is_mp3)
+
+    def _on_audio_setting_change(self, _value: str) -> None:
+        self._update_mp3_bitrate_state()
+        settings = load_settings()
+        settings["output_format"] = self.format_combo.currentText().strip().lower()
+        settings["mp3_bitrate_kbps"] = int(self.bitrate_combo.currentText())
+        save_settings(settings)
+
     def _on_generate(self) -> None:
         text = self.text_input.toPlainText().strip()
         if not text:
@@ -1340,6 +1371,7 @@ class KokoroQtWindow(QMainWindow):
             "style": self.style_combo.currentText(),
             "gain_db": self.gain_spin.value(),
             "output_format": self.format_combo.currentText(),
+            "mp3_bitrate_kbps": int(self.bitrate_combo.currentText()),
         }
 
         def _worker() -> None:
@@ -1699,6 +1731,8 @@ class KokoroQtWindow(QMainWindow):
         self.speed_spin.setValue(1.0)
         self.gain_spin.setValue(0.0)
         self.format_combo.setCurrentText("wav")
+        self.bitrate_combo.setCurrentText("192")
+        self._update_mp3_bitrate_state()
         self._set_status(self._t("audio_defaults_restored"))
 
     def _on_restore_defaults(self) -> None:
@@ -1734,6 +1768,8 @@ class KokoroQtWindow(QMainWindow):
         self.speed_spin.setValue(1.0)
         self.gain_spin.setValue(0.0)
         self.format_combo.setCurrentText("wav")
+        self.bitrate_combo.setCurrentText("192")
+        self._update_mp3_bitrate_state()
 
         self._on_lang_change()
         self._set_status(self._t("defaults_restored"))
