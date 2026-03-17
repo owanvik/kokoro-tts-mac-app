@@ -492,8 +492,13 @@ def rollback_to_release(tag: str, dmg_url: str, release_url: str) -> str:
     return _install_release_from_dmg(clean_tag, dmg_url, release_url)
 
 # ── Model download / engine ──────────────────────────────────────────
-def _download(url: str, dest: Path) -> None:
+def _download(url: str, dest: Path, progress_cb=None) -> None:
     if dest.exists() and dest.stat().st_size > 0:
+        if progress_cb is not None:
+            try:
+                progress_cb(dest.stat().st_size, dest.stat().st_size)
+            except Exception:
+                pass
         return
     dest.parent.mkdir(parents=True, exist_ok=True)
     last_error: Exception | None = None
@@ -501,7 +506,29 @@ def _download(url: str, dest: Path) -> None:
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "KokoroTTS"})
             with urllib.request.urlopen(req, timeout=30) as resp, open(dest, "wb") as out_f:
-                shutil.copyfileobj(resp, out_f)
+                total = None
+                try:
+                    total = resp.getheader("Content-Length")
+                    total = int(total) if total else None
+                except Exception:
+                    total = None
+                downloaded = 0
+                while True:
+                    chunk = resp.read(1024 * 256)
+                    if not chunk:
+                        break
+                    out_f.write(chunk)
+                    downloaded += len(chunk)
+                    if progress_cb is not None:
+                        try:
+                            progress_cb(downloaded, total)
+                        except Exception:
+                            pass
+                if progress_cb is not None:
+                    try:
+                        progress_cb(downloaded, total or downloaded)
+                    except Exception:
+                        pass
             if dest.exists() and dest.stat().st_size > 0:
                 return
             raise RuntimeError("Downloaded file is empty")
@@ -564,6 +591,84 @@ def _download_piper_voice(voice_id: str) -> tuple[Path, Path]:
     details = "\n".join(mirror_errors[-3:]) if mirror_errors else "Unknown network error"
     raise RuntimeError(
         f"Could not download Piper voice '{voice_id}' from any mirror.\n"
+        f"Please check network/proxy/firewall settings and try again.\n"
+        f"Details:\n{details}"
+    )
+
+def _remote_content_length(url: str) -> int | None:
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "KokoroTTS"}, method="HEAD")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            value = resp.getheader("Content-Length")
+            return int(value) if value else None
+    except Exception:
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "KokoroTTS"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                value = resp.getheader("Content-Length")
+                return int(value) if value else None
+        except Exception:
+            return None
+
+def is_piper_model_downloaded(model_id: str) -> bool:
+    if model_id not in PIPER_MODEL_REGISTRY:
+        return False
+    model_path, config_path = _piper_paths(model_id)
+    return (
+        model_path.exists() and model_path.stat().st_size > 0
+        and config_path.exists() and config_path.stat().st_size > 0
+    )
+
+def download_piper_model(model_id: str, progress_cb=None) -> tuple[Path, Path]:
+    if model_id not in PIPER_MODEL_REGISTRY:
+        raise RuntimeError(f"Unknown Piper voice: {model_id}")
+
+    info = PIPER_MODEL_REGISTRY[model_id]
+    model_path, config_path = _piper_paths(model_id)
+
+    if is_piper_model_downloaded(model_id):
+        total = model_path.stat().st_size + config_path.stat().st_size
+        if progress_cb is not None:
+            try:
+                progress_cb(total, total)
+            except Exception:
+                pass
+        return model_path, config_path
+
+    mirror_errors: list[str] = []
+    for model_url, config_url in info["urls"]:
+        try:
+            model_remote = _remote_content_length(model_url) or 0
+            config_remote = _remote_content_length(config_url) or 0
+            total_remote = model_remote + config_remote
+
+            def _report(downloaded: int, total: int) -> None:
+                if progress_cb is not None:
+                    progress_cb(downloaded, total)
+
+            def _model_progress(done: int, _total: int | None) -> None:
+                _report(done, total_remote)
+
+            def _config_progress(done: int, _total: int | None) -> None:
+                _report(model_remote + done, total_remote)
+
+            _download(model_url, model_path, progress_cb=_model_progress)
+            _download(config_url, config_path, progress_cb=_config_progress)
+
+            if progress_cb is not None:
+                final_total = total_remote if total_remote > 0 else (model_path.stat().st_size + config_path.stat().st_size)
+                progress_cb(final_total, final_total)
+            return model_path, config_path
+        except Exception as exc:
+            mirror_errors.append(f"model={model_url} | config={config_url} | error={exc}")
+            for p in (model_path, config_path):
+                if p.exists() and p.stat().st_size == 0:
+                    p.unlink(missing_ok=True)
+            continue
+
+    details = "\n".join(mirror_errors[-3:]) if mirror_errors else "Unknown network error"
+    raise RuntimeError(
+        f"Could not download Piper voice '{model_id}' from any mirror.\n"
         f"Please check network/proxy/firewall settings and try again.\n"
         f"Details:\n{details}"
     )

@@ -14,8 +14,8 @@ from pathlib import Path
 import numpy as np
 import sounddevice as sd
 import soundfile as sf
-from PySide6.QtCore import Qt, QTimer, QLibraryInfo
-from PySide6.QtGui import QAction, QColor, QPainter, QPen, QPixmap, QKeySequence
+from PySide6.QtCore import Qt, QTimer, QLibraryInfo, QUrl
+from PySide6.QtGui import QAction, QColor, QPainter, QPen, QPixmap, QKeySequence, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -57,12 +57,14 @@ from core import (
     check_updates_details,
     check_updates_message,
     ensure_engine,
+    download_piper_model,
     get_available_piper_models,
     get_model_version,
     get_recent_releases,
     get_piper_model,
     get_tts_engine,
     get_ui_language,
+    is_piper_model_downloaded,
     rollback_to_release,
     load_favorites,
     load_settings,
@@ -424,18 +426,28 @@ class KokoroQtWindow(QMainWindow):
         return tr(key, self._L, **kw)
 
     def _setup_app_menu(self) -> None:
-        menu = self.menuBar().addMenu(self._t("app_menu_title"))
+        app_menu = self.menuBar().addMenu(self._t("app_menu_title"))
 
         self.settings_action = QAction(self._t("app_menu_settings"), self)
         self.settings_action.setShortcut(QKeySequence("Ctrl+,"))
         self.settings_action.setMenuRole(QAction.PreferencesRole)
         self.settings_action.triggered.connect(self._show_settings_page)
-        menu.addAction(self.settings_action)
+        app_menu.addAction(self.settings_action)
+
+        about_menu = self.menuBar().addMenu(self._t("about_menu_title"))
 
         self.about_action = QAction(self._t("app_menu_about"), self)
-        self.about_action.setMenuRole(QAction.AboutRole)
+        self.about_action.setMenuRole(QAction.NoRole)
         self.about_action.triggered.connect(self._show_about_dialog)
-        menu.addAction(self.about_action)
+        about_menu.addAction(self.about_action)
+
+        self.github_action = QAction(self._t("github_menu_link"), self)
+        self.github_action.setMenuRole(QAction.NoRole)
+        self.github_action.triggered.connect(self._open_github)
+        about_menu.addAction(self.github_action)
+
+    def _open_github(self) -> None:
+        QDesktopServices.openUrl(QUrl("https://github.com/owanvik/kokoro-tts-mac-app"))
 
     def _show_about_dialog(self) -> None:
         QMessageBox.about(
@@ -809,6 +821,22 @@ class KokoroQtWindow(QMainWindow):
         model_layout.addWidget(QLabel(self._t("model_version")))
         model_layout.addWidget(self.model_combo)
         model_layout.addWidget(self.model_info)
+
+        self.piper_download_btn = QPushButton(self._t("piper_download_model"))
+        self.piper_download_btn.setMinimumHeight(34)
+        self.piper_download_btn.clicked.connect(self._on_download_piper_model)
+        model_layout.addWidget(self.piper_download_btn)
+
+        self.piper_progress = QProgressBar()
+        self.piper_progress.setRange(0, 100)
+        self.piper_progress.setValue(0)
+        self.piper_progress.setVisible(False)
+        model_layout.addWidget(self.piper_progress)
+
+        self.piper_progress_label = QLabel("")
+        self.piper_progress_label.setVisible(False)
+        model_layout.addWidget(self.piper_progress_label)
+
         content_layout.addWidget(model_card)
 
         self._refresh_engine_ui_state()
@@ -1426,7 +1454,8 @@ class KokoroQtWindow(QMainWindow):
             settings = load_settings()
             settings["piper_model"] = selected
             save_settings(settings)
-            self.model_info.setText(self._t("model_switched", version=selected))
+            self._refresh_engine_ui_state()
+            self.model_info.setText(f"{self._t('model_switched', version=selected)}\n{self.model_info.text()}")
             self._load_voices()
             return
 
@@ -1455,12 +1484,22 @@ class KokoroQtWindow(QMainWindow):
             self.model_combo.setCurrentText(f"Kokoro {get_model_version()}")
             self.model_combo.setEnabled(True)
             self.model_info.setText("")
+            self.piper_download_btn.setVisible(False)
+            self.piper_progress.setVisible(False)
+            self.piper_progress_label.setVisible(False)
         else:
             piper_models = get_available_piper_models()
             self.model_combo.addItems(piper_models)
             self.model_combo.setCurrentText(get_piper_model())
             self.model_combo.setEnabled(True)
-            self.model_info.setText(self._t("engine_piper_model_info"))
+            selected = get_piper_model()
+            downloaded = is_piper_model_downloaded(selected)
+            state_key = "piper_downloaded" if downloaded else "piper_not_downloaded"
+            self.model_info.setText(f"{self._t('engine_piper_model_info')}\n{self._t(state_key)}")
+            self.piper_download_btn.setVisible(True)
+            self.piper_progress.setVisible(False)
+            self.piper_progress_label.setVisible(False)
+            self.piper_download_btn.setEnabled(not downloaded)
         self.model_combo.blockSignals(False)
 
     def _on_tts_engine_change(self, _index: int) -> None:
@@ -1470,6 +1509,62 @@ class KokoroQtWindow(QMainWindow):
         save_settings(settings)
         self._refresh_engine_ui_state()
         self._load_voices()
+
+    def _format_mb_progress(self, current_bytes: int, total_bytes: int) -> str:
+        current_mb = max(0.0, current_bytes / (1024 * 1024))
+        total_mb = max(0.0, total_bytes / (1024 * 1024))
+        if total_mb > 0:
+            return f"{current_mb:.1f} MB / {total_mb:.1f} MB"
+        return f"{current_mb:.1f} MB"
+
+    def _on_download_piper_model(self) -> None:
+        selected = get_piper_model()
+        if not selected:
+            return
+
+        self.piper_download_btn.setEnabled(False)
+        self.piper_progress.setVisible(True)
+        self.piper_progress_label.setVisible(True)
+        self.piper_progress.setValue(0)
+        self.piper_progress_label.setText(self._t("piper_download_starting"))
+
+        self._piper_download_queue = queue.Queue()
+
+        def _progress(downloaded: int, total: int) -> None:
+            self._piper_download_queue.put(("progress", int(downloaded), int(total or 0), ""))
+
+        def _worker() -> None:
+            try:
+                download_piper_model(selected, progress_cb=_progress)
+                self._piper_download_queue.put(("done", 0, 0, ""))
+            except Exception as exc:
+                self._piper_download_queue.put(("error", 0, 0, str(exc)))
+
+        threading.Thread(target=_worker, daemon=True).start()
+        self._poll_piper_download_result()
+
+    def _poll_piper_download_result(self) -> None:
+        try:
+            kind, downloaded, total, message = self._piper_download_queue.get_nowait()
+        except queue.Empty:
+            QTimer.singleShot(100, self._poll_piper_download_result)
+            return
+
+        if kind == "progress":
+            pct = int((downloaded / total) * 100) if total > 0 else 0
+            self.piper_progress.setValue(max(0, min(100, pct)))
+            self.piper_progress_label.setText(self._format_mb_progress(downloaded, total))
+            QTimer.singleShot(50, self._poll_piper_download_result)
+            return
+
+        if kind == "done":
+            self.piper_progress.setValue(100)
+            self.piper_progress_label.setText(self._t("piper_download_done"))
+            self._refresh_engine_ui_state()
+            return
+
+        self.piper_progress_label.setText(message)
+        self.piper_download_btn.setEnabled(True)
 
     def _on_check_update(self) -> None:
         self.update_label.setText("…")
