@@ -171,12 +171,48 @@ def get_tts_engine() -> str:
     engine = str(load_settings().get("tts_engine", DEFAULT_TTS_ENGINE)).lower()
     return engine if engine in {"kokoro", "piper"} else DEFAULT_TTS_ENGINE
 
+_piper_model_availability_cache: dict[str, bool] = {}
+
+def _url_exists(url: str) -> bool:
+    req = urllib.request.Request(url, headers={"User-Agent": "KokoroTTS"}, method="HEAD")
+    try:
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            return 200 <= getattr(resp, "status", 200) < 400
+    except Exception:
+        try:
+            req_get = urllib.request.Request(url, headers={"User-Agent": "KokoroTTS"})
+            with urllib.request.urlopen(req_get, timeout=6) as resp:
+                return 200 <= getattr(resp, "status", 200) < 400
+        except Exception:
+            return False
+
+def _is_piper_model_available(model_id: str) -> bool:
+    if model_id in _piper_model_availability_cache:
+        return _piper_model_availability_cache[model_id]
+    info = PIPER_MODEL_REGISTRY.get(model_id, {})
+    urls = info.get("urls") or []
+    available = False
+    for model_url, config_url in urls:
+        if _url_exists(model_url) and _url_exists(config_url):
+            available = True
+            break
+    _piper_model_availability_cache[model_id] = available
+    return available
+
 def get_available_piper_models() -> list[str]:
-    return list(PIPER_MODEL_REGISTRY.keys())
+    available = [model_id for model_id in PIPER_MODEL_REGISTRY.keys() if _is_piper_model_available(model_id)]
+    if available:
+        return available
+    return [DEFAULT_PIPER_MODEL] if DEFAULT_PIPER_MODEL in PIPER_MODEL_REGISTRY else list(PIPER_MODEL_REGISTRY.keys())
 
 def get_piper_model() -> str:
     selected = str(load_settings().get("piper_model", DEFAULT_PIPER_MODEL))
-    return selected if selected in PIPER_MODEL_REGISTRY else DEFAULT_PIPER_MODEL
+    available = get_available_piper_models()
+    if selected in available:
+        return selected
+    if DEFAULT_PIPER_MODEL in available:
+        return DEFAULT_PIPER_MODEL
+    return available[0] if available else DEFAULT_PIPER_MODEL
 
 _locale_cache: dict[str, dict[str, str]] = {}
 
