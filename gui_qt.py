@@ -158,18 +158,18 @@ class AudioPlayerWidget(QWidget):
         row.addStretch(1)
 
         self.rewind_btn = QPushButton("⏮")
-        self.rewind_btn.setFixedWidth(36)
+        self.rewind_btn.setFixedWidth(72)
         self.rewind_btn.clicked.connect(self._rewind)
         row.addWidget(self.rewind_btn)
 
         self.play_btn = QPushButton("▶")
         self.play_btn.setObjectName("primary")
-        self.play_btn.setFixedWidth(44)
+        self.play_btn.setFixedWidth(88)
         self.play_btn.clicked.connect(self._toggle_play)
         row.addWidget(self.play_btn)
 
         self.forward_btn = QPushButton("⏭")
-        self.forward_btn.setFixedWidth(36)
+        self.forward_btn.setFixedWidth(72)
         self.forward_btn.clicked.connect(self._forward)
         row.addWidget(self.forward_btn)
 
@@ -1496,7 +1496,7 @@ class KokoroQtWindow(QMainWindow):
             downloaded = is_piper_model_downloaded(selected)
             state_key = "piper_downloaded" if downloaded else "piper_not_downloaded"
             self.model_info.setText(f"{self._t('engine_piper_model_info')}\n{self._t(state_key)}")
-            self.piper_download_btn.setVisible(True)
+            self.piper_download_btn.setVisible(not downloaded)
             self.piper_progress.setVisible(False)
             self.piper_progress_label.setVisible(False)
             self.piper_download_btn.setEnabled(not downloaded)
