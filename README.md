@@ -37,6 +37,12 @@ Ved ny versjon kan brukeren trykke **Oppdater nå**:
 
 Når appen finner en ny versjon via **Sjekk oppdatering**, vises release notes i appen før oppdatering.
 
+## Hva er nytt i v0.7.25
+
+- Piper-stemmer prioriterer nå valgt språk i listen.
+- Samtidig vises fortsatt alle Piper-stemmer (ikke låst til kun valgt språk).
+- Piper modellregister er utvidet med flere verifiserte stemmer på tvers av støttede språk.
+
 ## TTS-motorer (Kokoro og Piper)
 
 - **Kokoro** er standard (default) motor.
