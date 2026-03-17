@@ -677,7 +677,14 @@ engine: Kokoro | None = None
 voices: list[str] = []
 _current_model_version: str | None = None
 _piper_voice_cache: dict[str, object] = {}
-_ALLOW_INPROCESS_PIPER = os.environ.get("KOKORO_ALLOW_INPROCESS_PIPER", "").strip() == "1"
+_ALLOW_INPROCESS_PIPER = os.environ.get(
+    "KOKORO_ALLOW_INPROCESS_PIPER",
+    "1" if getattr(sys, "frozen", False) else "0",
+).strip() == "1"
+_ALLOW_PIPER_BINARY = os.environ.get(
+    "KOKORO_ALLOW_PIPER_BINARY",
+    "0" if getattr(sys, "frozen", False) else "1",
+).strip() == "1"
 
 def _piper_runtime_dir() -> Path:
     d = APP_DIR / "runtime" / "piper"
@@ -779,6 +786,15 @@ def _synthesize_with_piper_python(text: str, voice_id: str, speed: float) -> tup
     if PiperVoice is None or SynthesisConfig is None:
         raise RuntimeError("Piper Python runtime is unavailable")
 
+    try:
+        import espeakng_loader
+
+        espeakng_loader.make_library_available()
+        if not os.environ.get("ESPEAK_DATA_PATH"):
+            os.environ["ESPEAK_DATA_PATH"] = espeakng_loader.get_data_path()
+    except Exception:
+        pass
+
     model_path, config_path = _download_piper_voice(voice_id)
     cached = _piper_voice_cache.get(voice_id)
     if cached is None:
@@ -815,7 +831,12 @@ def _synthesize_with_piper(text: str, voice: str, speed: float) -> tuple[np.ndar
         except Exception as exc:
             python_error = str(exc)
     elif not _ALLOW_INPROCESS_PIPER:
-        python_error = "in-process Piper disabled for stability"
+        python_error = "in-process Piper is disabled"
+
+    if not _ALLOW_PIPER_BINARY:
+        if python_error:
+            raise RuntimeError(tr("piper_synthesis_failed", error=python_error))
+        raise RuntimeError(tr("piper_not_available"))
 
     piper_cmd = _resolve_piper_command()
     if piper_cmd is None:
