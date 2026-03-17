@@ -795,6 +795,19 @@ class KokoroQtWindow(QMainWindow):
         self.update_label = QLabel(APP_DISPLAY_VERSION)
         self.update_label.setWordWrap(True)
         update_layout.addWidget(self.update_label)
+
+        self.release_notes_title = QLabel(self._t("release_notes_section"))
+        self.release_notes_title.setObjectName("sectionTitle")
+        self.release_notes_title.setVisible(False)
+        update_layout.addWidget(self.release_notes_title)
+
+        self.release_notes_view = QTextEdit()
+        self.release_notes_view.setReadOnly(True)
+        self.release_notes_view.setObjectName("inputField")
+        self.release_notes_view.setMinimumHeight(140)
+        self.release_notes_view.setVisible(False)
+        update_layout.addWidget(self.release_notes_view)
+
         update_row = QHBoxLayout()
         self.check_update_btn = QPushButton(self._t("check_update"))
         self.check_update_btn.setMinimumHeight(34)
@@ -1447,9 +1460,15 @@ class KokoroQtWindow(QMainWindow):
             release_notes = str(details.get("release_notes") or "").strip()
             if not release_notes:
                 release_notes = self._t("release_notes_empty")
-            title = self._t("release_notes_title", tag=tag)
             intro = self._t("release_notes_intro", tag=tag)
-            QMessageBox.information(self, title, f"{intro}\n\n{release_notes}")
+            self.release_notes_title.setText(self._t("release_notes_title", tag=tag))
+            self.release_notes_title.setVisible(True)
+            self.release_notes_view.setPlainText(f"{intro}\n\n{release_notes}")
+            self.release_notes_view.setVisible(True)
+        else:
+            self.release_notes_title.setVisible(False)
+            self.release_notes_view.clear()
+            self.release_notes_view.setVisible(False)
 
     def _load_rollback_releases(self) -> None:
         self.rollback_combo.clear()

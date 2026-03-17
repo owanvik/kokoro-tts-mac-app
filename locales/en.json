@@ -39,6 +39,7 @@
   "preset_direct": "Direct",
   "update_available": "Update available: {tag} (you have {version}). Ready for automatic update.",
   "release_notes_title": "What's new in {tag}",
+  "release_notes_section": "Changelog",
   "release_notes_intro": "A new version is available. Included in this update:",
   "release_notes_empty": "No release notes are available for this version.",
   "up_to_date": "You have the latest version ({version}).",

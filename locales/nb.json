@@ -39,6 +39,7 @@
   "preset_direct": "Direkte",
   "update_available": "Oppdatering tilgjengelig: {tag} (du har {version}). Klar for automatisk oppdatering.",
   "release_notes_title": "Hva er nytt i {tag}",
+  "release_notes_section": "Endringslogg",
   "release_notes_intro": "Ny versjon er tilgjengelig. Dette kommer i oppdateringen:",
   "release_notes_empty": "Ingen release notes er tilgjengelige for denne versjonen.",
   "up_to_date": "Du har nyeste versjon ({version}).",
