@@ -44,6 +44,10 @@ Når appen finner en ny versjon via **Sjekk oppdatering**, vises release notes i
 - Når Piper er valgt får du en egen modell-dropdown (klargjort for flere Piper-modeller).
 - Piper-runtime forsøkes løst automatisk (lokal `piper`, `python -m piper`, eller nedlasting av macOS-runtime ved behov).
 
+### Kjent issue (fikset)
+
+- Piper-krasj på macOS (SIGSEGV via `espeakbridge`) er fikset i `v0.7.21` ved at Piper kjøres i separat prosess som standard.
+
 ## Publisere ny versjon
 
 1. Oppdater `VERSION` (f.eks. `0.7.2`)
