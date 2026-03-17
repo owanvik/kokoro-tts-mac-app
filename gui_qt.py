@@ -55,7 +55,6 @@ from core import (
     apply_preset,
     auto_update,
     check_updates_details,
-    check_updates_message,
     ensure_engine,
     download_piper_model,
     get_available_piper_models,
@@ -1270,6 +1269,73 @@ class KokoroQtWindow(QMainWindow):
     def _init_engine(self) -> None:
         self._load_voices()
         self._set_status(self._t("up_to_date", version=APP_VERSION))
+        self._set_update_actions_state(False)
+        QTimer.singleShot(250, lambda: self._check_updates_async(startup=True))
+
+    def _refresh_button_style(self, button: QPushButton) -> None:
+        style = button.style()
+        style.unpolish(button)
+        style.polish(button)
+        button.update()
+
+    def _set_update_actions_state(self, update_available: bool) -> None:
+        self.auto_update_btn.setVisible(update_available)
+        self.check_update_btn.setObjectName("" if update_available else "primary")
+        self._refresh_button_style(self.check_update_btn)
+
+    def _check_updates_async(self, startup: bool = False) -> None:
+        if getattr(self, "_update_check_running", False):
+            return
+        self._update_check_running = True
+        self.check_update_btn.setEnabled(False)
+        if not startup:
+            self.update_label.setText("…")
+
+        self._update_check_queue = queue.Queue(maxsize=1)
+
+        def _worker() -> None:
+            try:
+                details = check_updates_details()
+            except Exception as exc:
+                details = {
+                    "update_available": False,
+                    "message": str(exc),
+                    "tag": "",
+                    "release_notes": "",
+                }
+            self._update_check_queue.put(details)
+
+        threading.Thread(target=_worker, daemon=True).start()
+        self._poll_update_check_result()
+
+    def _poll_update_check_result(self) -> None:
+        try:
+            details = self._update_check_queue.get_nowait()
+        except queue.Empty:
+            QTimer.singleShot(120, self._poll_update_check_result)
+            return
+
+        self._update_check_running = False
+        self.check_update_btn.setEnabled(True)
+
+        update_available = bool(details.get("update_available"))
+        message = str(details.get("message") or self._t("up_to_date", version=APP_VERSION))
+        self.update_label.setText(message)
+        self._set_update_actions_state(update_available)
+
+        if update_available:
+            tag = str(details.get("tag") or "")
+            release_notes = str(details.get("release_notes") or "").strip()
+            if not release_notes:
+                release_notes = self._t("release_notes_empty")
+            self.release_notes_title.setText(self._t("release_notes_title", tag=tag))
+            self.release_notes_title.setVisible(True)
+            self.release_notes_view.setPlainText(release_notes)
+            self.release_notes_view.setVisible(True)
+        else:
+            self.release_notes_title.setVisible(False)
+            self.release_notes_view.clear()
+            self.release_notes_view.setVisible(False)
 
     def _load_voices(self) -> None:
         self._set_status(self._t("loading_model"))
@@ -1607,24 +1673,7 @@ class KokoroQtWindow(QMainWindow):
         self.piper_download_btn.setEnabled(True)
 
     def _on_check_update(self) -> None:
-        self.update_label.setText("…")
-        QApplication.processEvents()
-        details = check_updates_details()
-        message = str(details.get("message") or check_updates_message())
-        self.update_label.setText(message)
-        if bool(details.get("update_available")):
-            tag = str(details.get("tag") or "")
-            release_notes = str(details.get("release_notes") or "").strip()
-            if not release_notes:
-                release_notes = self._t("release_notes_empty")
-            self.release_notes_title.setText(self._t("release_notes_title", tag=tag))
-            self.release_notes_title.setVisible(True)
-            self.release_notes_view.setPlainText(release_notes)
-            self.release_notes_view.setVisible(True)
-        else:
-            self.release_notes_title.setVisible(False)
-            self.release_notes_view.clear()
-            self.release_notes_view.setVisible(False)
+        self._check_updates_async(startup=False)
 
     def _load_rollback_releases(self) -> None:
         self.rollback_combo.clear()

@@ -30,6 +30,14 @@ Hvis macOS blokkerer første gang:
 ## Oppdatering i appen
 
 Appen sjekker ny versjon ved oppstart.
+Hvis appen er oppdatert til nyeste versjon:
+- **Oppdater nå**-knappen skjules
+- **Sjekk oppdatering** vises som oransje knapp
+
+Hvis en nyere versjon finnes:
+- **Oppdater nå**-knappen vises
+- release notes vises i oppdateringsseksjonen
+
 Ved ny versjon kan brukeren trykke **Oppdater nå**:
 - appen laster ned ny DMG automatisk fra GitHub Release
 - installasjonsvindu åpnes automatisk
