@@ -43,6 +43,10 @@ Ved ny versjon kan brukeren trykke **Oppdater nå**:
 - installasjonsvindu åpnes automatisk
 - bruker drar ny app til `Applications`
 
+> **Viktig for brukere på v0.7.27 eller eldre:**
+> Disse versjonene mangler SSL-sertifikater og kan ikke auto-oppdatere.
+> Du må laste ned v0.7.28+ manuelt fra [Releases](https://github.com/owanvik/kokoro-tts-mac-app/releases/latest). Etter det fungerer auto-oppdatering normalt.
+
 Når appen finner en ny versjon via **Sjekk oppdatering**, vises release notes i appen før oppdatering.
 
 ## Hva er nytt i v0.7.25
