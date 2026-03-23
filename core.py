@@ -11,11 +11,21 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import ssl
 import urllib.parse
 import urllib.request
 from urllib.error import URLError, HTTPError
 from datetime import datetime
 from pathlib import Path
+
+try:
+    import certifi
+    _CERTIFI_CA = certifi.where()
+except Exception:
+    _CERTIFI_CA = None
+
+def _ssl_context() -> ssl.SSLContext:
+    return ssl.create_default_context(cafile=_CERTIFI_CA)
 
 import numpy as np
 import soundfile as sf
@@ -479,12 +489,12 @@ _piper_model_availability_cache: dict[str, bool] = {}
 def _url_exists(url: str) -> bool:
     req = urllib.request.Request(url, headers={"User-Agent": "KokoroTTS"}, method="HEAD")
     try:
-        with urllib.request.urlopen(req, timeout=6) as resp:
+        with urllib.request.urlopen(req, timeout=6, context=_ssl_context()) as resp:
             return 200 <= getattr(resp, "status", 200) < 400
     except Exception:
         try:
             req_get = urllib.request.Request(url, headers={"User-Agent": "KokoroTTS"})
-            with urllib.request.urlopen(req_get, timeout=6) as resp:
+            with urllib.request.urlopen(req_get, timeout=6, context=_ssl_context()) as resp:
                 return 200 <= getattr(resp, "status", 200) < 400
         except Exception:
             return False
@@ -581,7 +591,7 @@ def _get_latest_release_via_redirect() -> tuple[str, str, str]:
         LATEST_RELEASE_URL,
         headers={"User-Agent": "KokoroTTS"},
     )
-    with urllib.request.urlopen(req, timeout=8) as resp:
+    with urllib.request.urlopen(req, timeout=8, context=_ssl_context()) as resp:
         final_url = resp.geturl()
 
     match = re.search(r"/releases/tag/([^/?#]+)", final_url)
@@ -599,7 +609,7 @@ def get_recent_releases(limit: int = 20) -> list[dict[str, str]]:
             f"https://api.github.com/repos/{GITHUB_REPO}/releases?per_page={safe_limit}",
             headers={"Accept": "application/vnd.github+json", "User-Agent": "KokoroTTS"},
         )
-        with urllib.request.urlopen(req, timeout=8) as resp:
+        with urllib.request.urlopen(req, timeout=8, context=_ssl_context()) as resp:
             data = json.loads(resp.read().decode("utf-8"))
 
         releases: list[dict[str, str]] = []
@@ -627,7 +637,7 @@ def get_recent_releases(limit: int = 20) -> list[dict[str, str]]:
             f"https://github.com/{GITHUB_REPO}/releases",
             headers={"User-Agent": "KokoroTTS"},
         )
-        with urllib.request.urlopen(req, timeout=8) as resp:
+        with urllib.request.urlopen(req, timeout=8, context=_ssl_context()) as resp:
             html = resp.read().decode("utf-8", errors="replace")
 
         tags: list[str] = []
@@ -653,7 +663,7 @@ def get_latest_release_details() -> tuple[str, str, str, str]:
             LATEST_RELEASE_API,
             headers={"Accept": "application/vnd.github+json", "User-Agent": "KokoroTTS"},
         )
-        with urllib.request.urlopen(req, timeout=8) as resp:
+        with urllib.request.urlopen(req, timeout=8, context=_ssl_context()) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         dmg_url = ""
         for asset in data.get("assets", []):
@@ -727,7 +737,7 @@ def _install_release_from_dmg(tag: str, dmg_url: str, release_url: str) -> str:
     mount_point.mkdir()
     try:
         req = urllib.request.Request(dmg_url, headers={"User-Agent": "KokoroTTS"})
-        with urllib.request.urlopen(req, timeout=30) as resp, open(dmg_path, "wb") as out_f:
+        with urllib.request.urlopen(req, timeout=30, context=_ssl_context()) as resp, open(dmg_path, "wb") as out_f:
             shutil.copyfileobj(resp, out_f)
     except Exception as e:
         return tr("download_failed", error=str(e))
@@ -808,7 +818,7 @@ def _download(url: str, dest: Path, progress_cb=None) -> None:
     for _ in range(3):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "KokoroTTS"})
-            with urllib.request.urlopen(req, timeout=30) as resp, open(dest, "wb") as out_f:
+            with urllib.request.urlopen(req, timeout=30, context=_ssl_context()) as resp, open(dest, "wb") as out_f:
                 total = None
                 try:
                     total = resp.getheader("Content-Length")
@@ -901,13 +911,13 @@ def _download_piper_voice(voice_id: str) -> tuple[Path, Path]:
 def _remote_content_length(url: str) -> int | None:
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "KokoroTTS"}, method="HEAD")
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=10, context=_ssl_context()) as resp:
             value = resp.getheader("Content-Length")
             return int(value) if value else None
     except Exception:
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "KokoroTTS"})
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req, timeout=10, context=_ssl_context()) as resp:
                 value = resp.getheader("Content-Length")
                 return int(value) if value else None
         except Exception:

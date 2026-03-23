@@ -25,6 +25,7 @@ pyinstaller \
   --collect-all language_tags \
   --collect-all espeakng_loader \
   --collect-all customtkinter \
+  --collect-all certifi \
   launcher.py
 
 PLIST="$(pwd)/dist/KokoroTTS.app/Contents/Info.plist"

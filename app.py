@@ -4,7 +4,9 @@ from __future__ import annotations
 import base64
 import json
 import os
+import shutil
 import signal
+import ssl
 import subprocess
 import re
 import sys
@@ -12,6 +14,15 @@ import tempfile
 import urllib.request
 from datetime import datetime
 from pathlib import Path
+
+try:
+    import certifi
+    _CERTIFI_CA = certifi.where()
+except Exception:
+    _CERTIFI_CA = None
+
+def _ssl_context() -> ssl.SSLContext:
+    return ssl.create_default_context(cafile=_CERTIFI_CA)
 
 import gradio as gr
 import numpy as np
@@ -163,7 +174,7 @@ def get_latest_release() -> tuple[str, str, str]:
         LATEST_RELEASE_API,
         headers={"Accept": "application/vnd.github+json", "User-Agent": "KokoroTTS"},
     )
-    with urllib.request.urlopen(req, timeout=6) as resp:
+    with urllib.request.urlopen(req, timeout=6, context=_ssl_context()) as resp:
         data = json.loads(resp.read().decode("utf-8"))
 
     dmg_url = ""
@@ -226,7 +237,9 @@ def auto_update() -> str:
     mount_point.mkdir()
 
     try:
-        urllib.request.urlretrieve(dmg_url, dmg_path)
+        req = urllib.request.Request(dmg_url, headers={"User-Agent": "KokoroTTS"})
+        with urllib.request.urlopen(req, timeout=30, context=_ssl_context()) as resp, open(dmg_path, "wb") as out_f:
+            shutil.copyfileobj(resp, out_f)
     except Exception as e:
         return tr("download_failed", error=str(e))
 
@@ -298,7 +311,9 @@ open "{install_dest / app_name}"
 def _download(url: str, dest: Path) -> None:
     if dest.exists() and dest.stat().st_size > 0:
         return
-    urllib.request.urlretrieve(url, dest)
+    req = urllib.request.Request(url, headers={"User-Agent": "KokoroTTS"})
+    with urllib.request.urlopen(req, timeout=30, context=_ssl_context()) as resp, open(dest, "wb") as out_f:
+        shutil.copyfileobj(resp, out_f)
 
 
 def _download_model(version: str) -> tuple[Path, Path]:
