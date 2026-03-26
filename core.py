@@ -24,8 +24,44 @@ try:
 except Exception:
     _CERTIFI_CA = None
 
+_LOCAL_CA_PATH = Path.home() / "Library" / "Application Support" / "KokoroTTS" / "certs" / "cacert.pem"
+
+if _CERTIFI_CA is None and _LOCAL_CA_PATH.exists():
+    _CERTIFI_CA = str(_LOCAL_CA_PATH)
+
 def _ssl_context() -> ssl.SSLContext:
     return ssl.create_default_context(cafile=_CERTIFI_CA)
+
+def ssl_ok() -> bool:
+    """Return True if HTTPS connections work with our SSL context."""
+    try:
+        ctx = _ssl_context()
+        req = urllib.request.Request("https://api.github.com", headers={"User-Agent": "KokoroTTS"}, method="HEAD")
+        with urllib.request.urlopen(req, timeout=5, context=ctx):
+            pass
+        return True
+    except Exception:
+        return False
+
+def download_certifi_ca() -> bool:
+    """Download Mozilla CA bundle (from curl project) without SSL verification and save locally."""
+    url = "https://curl.se/ca/cacert.pem"
+    dest = _LOCAL_CA_PATH
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        req = urllib.request.Request(url, headers={"User-Agent": "KokoroTTS"})
+        with urllib.request.urlopen(req, timeout=30, context=ctx) as resp, open(dest, "wb") as f:
+            shutil.copyfileobj(resp, f)
+        if dest.exists() and dest.stat().st_size > 1000:
+            global _CERTIFI_CA
+            _CERTIFI_CA = str(dest)
+            return True
+        return False
+    except Exception:
+        return False
 
 import numpy as np
 import soundfile as sf

@@ -55,6 +55,7 @@ from core import (
     apply_preset,
     auto_update,
     check_updates_details,
+    download_certifi_ca,
     ensure_engine,
     download_piper_model,
     get_available_piper_models,
@@ -68,6 +69,7 @@ from core import (
     load_favorites,
     load_settings,
     save_settings,
+    ssl_ok,
     synthesize,
     toggle_favorite,
     tr,
@@ -1015,6 +1017,22 @@ class KokoroQtWindow(QMainWindow):
         update_row.addWidget(self.auto_update_btn)
         update_row.addStretch(1)
         update_layout.addLayout(update_row)
+
+        self.cert_info_label = QLabel(self._t("cert_missing_info"))
+        self.cert_info_label.setWordWrap(True)
+        self.cert_info_label.setStyleSheet("color: #f5a623; margin-top: 8px;")
+        self.cert_info_label.setVisible(False)
+        update_layout.addWidget(self.cert_info_label)
+        cert_row = QHBoxLayout()
+        self.download_cert_btn = QPushButton(self._t("download_certificate"))
+        self.download_cert_btn.setMinimumHeight(34)
+        self.download_cert_btn.setStyleSheet("background: #f5a623; color: #000; font-weight: bold; border-radius: 6px;")
+        self.download_cert_btn.clicked.connect(self._on_download_certificate)
+        self.download_cert_btn.setVisible(False)
+        cert_row.addWidget(self.download_cert_btn)
+        cert_row.addStretch(1)
+        update_layout.addLayout(cert_row)
+
         content_layout.addWidget(update_card)
 
         content_layout.addStretch(1)
@@ -1271,6 +1289,51 @@ class KokoroQtWindow(QMainWindow):
         self._set_status(self._t("up_to_date", version=APP_VERSION))
         self._set_update_actions_state(False)
         QTimer.singleShot(250, lambda: self._check_updates_async(startup=True))
+        QTimer.singleShot(500, self._check_ssl_certificate)
+
+    def _check_ssl_certificate(self) -> None:
+        def _worker():
+            return ssl_ok()
+        def _done(ok):
+            self._ssl_available = ok
+            self.cert_info_label.setVisible(not ok)
+            self.download_cert_btn.setVisible(not ok)
+        self._ssl_check_queue = queue.Queue(maxsize=1)
+        def _bg():
+            result = _worker()
+            self._ssl_check_queue.put(result)
+        threading.Thread(target=_bg, daemon=True).start()
+        def _poll():
+            try:
+                ok = self._ssl_check_queue.get_nowait()
+                _done(ok)
+            except queue.Empty:
+                QTimer.singleShot(200, _poll)
+        QTimer.singleShot(200, _poll)
+
+    def _on_download_certificate(self) -> None:
+        self.download_cert_btn.setEnabled(False)
+        self.download_cert_btn.setText(self._t("downloading_certificate"))
+        self._cert_dl_queue = queue.Queue(maxsize=1)
+        def _worker():
+            result = download_certifi_ca()
+            self._cert_dl_queue.put(result)
+        threading.Thread(target=_worker, daemon=True).start()
+        def _poll():
+            try:
+                ok = self._cert_dl_queue.get_nowait()
+                if ok:
+                    self.cert_info_label.setVisible(False)
+                    self.download_cert_btn.setVisible(False)
+                    self._set_status(self._t("cert_downloaded"))
+                    QTimer.singleShot(500, lambda: self._check_updates_async(startup=True))
+                else:
+                    self.download_cert_btn.setEnabled(True)
+                    self.download_cert_btn.setText(self._t("download_certificate"))
+                    self._set_status(self._t("cert_download_failed"))
+            except queue.Empty:
+                QTimer.singleShot(200, _poll)
+        QTimer.singleShot(200, _poll)
 
     def _refresh_button_style(self, button: QPushButton) -> None:
         style = button.style()
