@@ -95,7 +95,7 @@
   "enable_ssl": "Use HTTPS (SSL)",
   "ssl_restart_required": "SSL setting saved. Restart the app to apply.",
   "loading_model": "Loading model…",
-  "cert_missing_info": "SSL certificate is missing. Downloading models and checking for updates will not work without it. Press the button below to download it.",
+  "cert_missing_info": "SSL certificate is missing. The app still works, but downloads are not verified. Download the certificate for a secure connection.",
   "download_certificate": "Download certificate",
   "downloading_certificate": "Downloading certificate…",
   "cert_downloaded": "SSL certificate downloaded. Network features are now available.",

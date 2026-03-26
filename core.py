@@ -30,18 +30,16 @@ if _CERTIFI_CA is None and _LOCAL_CA_PATH.exists():
     _CERTIFI_CA = str(_LOCAL_CA_PATH)
 
 def _ssl_context() -> ssl.SSLContext:
-    return ssl.create_default_context(cafile=_CERTIFI_CA)
+    if _CERTIFI_CA:
+        return ssl.create_default_context(cafile=_CERTIFI_CA)
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
 
 def ssl_ok() -> bool:
-    """Return True if HTTPS connections work with our SSL context."""
-    try:
-        ctx = _ssl_context()
-        req = urllib.request.Request("https://api.github.com", headers={"User-Agent": "KokoroTTS"}, method="HEAD")
-        with urllib.request.urlopen(req, timeout=5, context=ctx):
-            pass
-        return True
-    except Exception:
-        return False
+    """Return True if a proper CA bundle is available for SSL verification."""
+    return _CERTIFI_CA is not None
 
 def download_certifi_ca() -> bool:
     """Download Mozilla CA bundle (from curl project) without SSL verification and save locally."""

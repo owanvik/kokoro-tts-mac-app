@@ -95,7 +95,7 @@
   "enable_ssl": "Bruk HTTPS (SSL)",
   "ssl_restart_required": "SSL-innstilling lagret. Start appen på nytt for å aktivere.",
   "loading_model": "Laster modell…",
-  "cert_missing_info": "SSL-sertifikat mangler. Nedlasting av modeller og oppdateringssjekk vil ikke fungere uten sertifikat. Trykk knappen under for å laste det ned.",
+  "cert_missing_info": "SSL-sertifikat mangler. Appen fungerer, men nedlastinger er ikke verifisert. Last ned sertifikat for sikker tilkobling.",
   "download_certificate": "Last ned sertifikat",
   "downloading_certificate": "Laster ned sertifikat…",
   "cert_downloaded": "SSL-sertifikat lastet ned. Nettverksfunksjoner er nå tilgjengelig.",

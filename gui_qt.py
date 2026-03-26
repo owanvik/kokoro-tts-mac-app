@@ -1292,24 +1292,10 @@ class KokoroQtWindow(QMainWindow):
         QTimer.singleShot(500, self._check_ssl_certificate)
 
     def _check_ssl_certificate(self) -> None:
-        def _worker():
-            return ssl_ok()
-        def _done(ok):
-            self._ssl_available = ok
-            self.cert_info_label.setVisible(not ok)
-            self.download_cert_btn.setVisible(not ok)
-        self._ssl_check_queue = queue.Queue(maxsize=1)
-        def _bg():
-            result = _worker()
-            self._ssl_check_queue.put(result)
-        threading.Thread(target=_bg, daemon=True).start()
-        def _poll():
-            try:
-                ok = self._ssl_check_queue.get_nowait()
-                _done(ok)
-            except queue.Empty:
-                QTimer.singleShot(200, _poll)
-        QTimer.singleShot(200, _poll)
+        ok = ssl_ok()
+        self._ssl_available = ok
+        self.cert_info_label.setVisible(not ok)
+        self.download_cert_btn.setVisible(not ok)
 
     def _on_download_certificate(self) -> None:
         self.download_cert_btn.setEnabled(False)
