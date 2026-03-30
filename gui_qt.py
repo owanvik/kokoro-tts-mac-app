@@ -4,6 +4,7 @@ from __future__ import annotations
 import math
 import os
 import queue
+import subprocess
 import threading
 import sys
 import shutil
@@ -138,6 +139,9 @@ class AudioPlayerWidget(QWidget):
         self._play_start: float = 0.0
         self._pause_offset: float = 0.0
         self._updating_slider = False
+        self._file_path: str | None = None
+        self._afplay_proc: subprocess.Popen | None = None
+        self._use_afplay = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -201,6 +205,7 @@ class AudioPlayerWidget(QWidget):
 
     def load_file(self, path: str) -> None:
         self.stop()
+        self._file_path = path
         try:
             data, sr = sf.read(path)
         except Exception:
@@ -224,7 +229,16 @@ class AudioPlayerWidget(QWidget):
         self._playing = False
         self._paused = False
         self._pause_offset = 0.0
-        sd.stop()
+        try:
+            sd.stop()
+        except Exception:
+            pass
+        if self._afplay_proc is not None:
+            try:
+                self._afplay_proc.terminate()
+            except Exception:
+                pass
+            self._afplay_proc = None
         self.play_btn.setText("▶")
 
     def _toggle_play(self) -> None:
@@ -243,29 +257,54 @@ class AudioPlayerWidget(QWidget):
         self._paused = False
         self._pause_offset = max(0.0, min(offset, max(0.0, self._duration - 0.05)))
 
-        start_frame = int(self._pause_offset * self._sr)
-        out_device = self._pick_output_device()
-        play_kwargs = {
-            "blocking": False,
-            "latency": "high",
-            "blocksize": 2048,
-        }
-        if out_device is not None:
-            play_kwargs["device"] = out_device
+        if not self._use_afplay:
+            start_frame = int(self._pause_offset * self._sr)
+            out_device = self._pick_output_device()
+            play_kwargs = {
+                "blocking": False,
+                "latency": "high",
+                "blocksize": 2048,
+            }
+            if out_device is not None:
+                play_kwargs["device"] = out_device
 
-        try:
-            sd.play(self._audio[start_frame:], self._sr, **play_kwargs)
-        except Exception:
-            return
-        self._play_start = time.time() - self._pause_offset
-        self.play_btn.setText("⏸")
+            try:
+                sd.play(self._audio[start_frame:], self._sr, **play_kwargs)
+                self._play_start = time.time() - self._pause_offset
+                self.play_btn.setText("⏸")
+                return
+            except Exception:
+                self._use_afplay = True
+
+        if self._file_path and Path(self._file_path).exists():
+            try:
+                cmd = ["afplay", self._file_path]
+                self._afplay_proc = subprocess.Popen(
+                    cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+                self._play_start = time.time()
+                self._pause_offset = 0.0
+                self.play_btn.setText("⏸")
+            except Exception:
+                self._playing = False
+        else:
+            self._playing = False
 
     def _pause(self) -> None:
         if not self._playing:
             return
         self._paused = True
         self._pause_offset = self._current_position()
-        sd.stop()
+        try:
+            sd.stop()
+        except Exception:
+            pass
+        if self._afplay_proc is not None:
+            try:
+                self._afplay_proc.terminate()
+            except Exception:
+                pass
+            self._afplay_proc = None
         self.play_btn.setText("▶")
 
     def _resume(self) -> None:
@@ -332,6 +371,12 @@ class AudioPlayerWidget(QWidget):
         if event.timerId() != self._timer:
             return
         if self._duration <= 0 or self._updating_slider:
+            return
+        if self._afplay_proc is not None and self._afplay_proc.poll() is not None:
+            self._afplay_proc = None
+            self.stop()
+            self._set_slider_from_pos(self._duration)
+            self._update_time(self._duration)
             return
         pos = self._current_position()
         if self._playing and not self._paused and pos >= self._duration:
